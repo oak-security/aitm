@@ -1,0 +1,48 @@
+name: release
+
+# Build signed installers for macOS, Windows, and Linux on a version tag and publish
+# them to a GitHub Release (which is also the electron-updater feed).
+#
+# Required repo secrets for a signed + notarized macOS build (all optional — without
+# them the mac build is produced unsigned):
+#   MAC_CSC_LINK              base64 of the Developer ID Application .p12
+#   MAC_CSC_KEY_PASSWORD      password for that .p12
+#   APPLE_ID                  Apple ID email
+#   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that Apple ID
+#   APPLE_TEAM_ID             10-char team id (e.g. V863M8NPN9) — also enables notarization
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build and publish
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing + notarization (ignored on win/linux runners).
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

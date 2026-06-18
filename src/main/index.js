@@ -113,6 +113,22 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Auto-update from GitHub Releases. Packaged builds only; never in dev (app-update.yml
+// is absent there). Failure-tolerant: a private repo without a runtime token simply
+// returns 404 and we stay quiet rather than bothering the user.
+function initAutoUpdate() {
+  if (isDev || !app.isPackaged) return;
+  try {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on("error", (err) => console.log("[updater]", err && err.message));
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => console.log("[updater]", err && err.message));
+  } catch (err) {
+    console.log("[updater] disabled:", err && err.message);
+  }
+}
+
 app.whenReady().then(() => {
   // Replace the default Electron dock icon during dev (macOS).
   if (process.platform === "darwin" && app.dock) {
@@ -123,6 +139,7 @@ app.whenReady().then(() => {
   registerIpc();
   buildMenu();
   createWindow();
+  initAutoUpdate();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

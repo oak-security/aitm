@@ -20,6 +20,10 @@ module.exports = {
   appId: "io.mostlyharmless.aitm",
   productName: "AiTM",
   directories: { buildResources: "build", output: "dist" },
+  // Publish target for `electron-builder --publish` and the feed electron-updater reads.
+  // The repo is private, so silent auto-update requires the runtime to authenticate
+  // (a GH token) or the release assets to be public — see README "Auto-update".
+  publish: [{ provider: "github", owner: "mhl42", repo: "aitm" }],
   files: [
     "src/**/*",
     "package.json",
