@@ -1,0 +1,12 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AiTM mark">
+  <!-- Attack-tree glyph: a root node with two descending edges to child nodes.
+       Gold on transparent so it sits on the Ink sidebar. -->
+  <g fill="none" stroke="#F5C518" stroke-width="22" stroke-linecap="round">
+    <line x1="256" y1="206" x2="150" y2="356"/>
+    <line x1="256" y1="206" x2="362" y2="356"/>
+  </g>
+  <circle cx="256" cy="158" r="50" fill="none" stroke="#F5C518" stroke-width="22"/>
+  <circle cx="256" cy="158" r="13" fill="#F5C518"/>
+  <circle cx="150" cy="366" r="34" fill="#F5C518"/>
+  <circle cx="362" cy="366" r="34" fill="#F5C518"/>
+</svg>

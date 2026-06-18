@@ -1,0 +1,28 @@
+{
+  "name": "aitm",
+  "productName": "AiTM",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AiTM — AI Threat Modeller. Local-first desktop threat modeling using the TRACE framework.",
+  "license": "UNLICENSED",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "check": "node --check src/main/index.js && node --check src/preload/index.js && node --check src/renderer/app.js",
+    "test": "node --test 'test/**/*.test.js'",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "mammoth": "^1.9.0",
+    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.18.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
