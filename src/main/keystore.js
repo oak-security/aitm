@@ -5,9 +5,12 @@ const path = require("node:path");
 const { app, safeStorage } = require("electron");
 const { appError, assertString } = require("./util");
 
-// The API key lives only here: encrypted at rest via the OS keychain, decrypted in
-// memory in the main process only. It is never written to project files, exports,
-// logs, or returned to the renderer in plaintext.
+// Per-provider API keys. The keystore file holds an encrypted JSON map
+// { openai: "...", anthropic: "..." }. Keys live only here: encrypted at rest via the
+// OS keychain, decrypted in memory in the main process only. Never written to project
+// files, exports, logs, or returned to the renderer in plaintext.
+
+const PROVIDERS = ["openai", "anthropic"];
 
 function keyFile() {
   return path.join(app.getPath("userData"), "keystore.bin");
@@ -17,46 +20,79 @@ function encryptionAvailable() {
   return safeStorage.isEncryptionAvailable();
 }
 
-function readKey() {
+function readAll() {
   const file = keyFile();
-  if (!fs.existsSync(file)) return "";
+  if (!fs.existsSync(file)) return {};
   if (!encryptionAvailable()) {
-    throw appError("encryption_unavailable", "OS secure storage is unavailable; cannot read the stored API key.");
+    throw appError("encryption_unavailable", "OS secure storage is unavailable; cannot read stored API keys.");
+  }
+  let plain;
+  try {
+    plain = safeStorage.decryptString(fs.readFileSync(file));
+  } catch {
+    throw appError("keystore_corrupt", "Stored API keys could not be decrypted. Re-enter them in Settings.");
   }
   try {
-    return safeStorage.decryptString(fs.readFileSync(file)).trim();
+    const obj = JSON.parse(plain);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) return obj;
   } catch {
-    throw appError("keystore_corrupt", "Stored API key could not be decrypted. Re-enter it in Settings.");
+    /* fall through to legacy single-key format */
   }
+  // Legacy format: a bare key string from the original single-key build → treat as OpenAI.
+  return plain.trim() ? { openai: plain.trim() } : {};
 }
 
-function setKey(key) {
-  assertString(key, "API key", { max: 4096 });
+function writeAll(map) {
   if (!encryptionAvailable()) {
-    throw appError("encryption_unavailable", "OS secure storage (Keychain/DPAPI/libsecret) is unavailable. The key cannot be stored securely, so it will not be saved.");
+    throw appError("encryption_unavailable", "OS secure storage (Keychain/DPAPI/libsecret) is unavailable. Keys cannot be stored securely, so they will not be saved.");
   }
-  const trimmed = key.trim();
-  fs.writeFileSync(keyFile(), safeStorage.encryptString(trimmed), { mode: 0o600 });
+  fs.writeFileSync(keyFile(), safeStorage.encryptString(JSON.stringify(map)), { mode: 0o600 });
+}
+
+function normalizeProvider(provider) {
+  assertString(provider, "provider", { max: 32 });
+  if (!PROVIDERS.includes(provider)) throw appError("unknown_provider", `Unknown provider: ${provider}`);
+  return provider;
+}
+
+function readKey(provider) {
+  return (readAll()[normalizeProvider(provider)] || "").trim();
+}
+
+function setKey(provider, key) {
+  normalizeProvider(provider);
+  assertString(key, "API key", { max: 4096 });
+  const map = readAll();
+  map[provider] = key.trim();
+  writeAll(map);
   return status();
 }
 
-function clearKey() {
-  fs.rmSync(keyFile(), { force: true });
+function clearKey(provider) {
+  normalizeProvider(provider);
+  const map = readAll();
+  delete map[provider];
+  writeAll(map);
   return status();
 }
 
+// Per-provider configured/last4, never the key itself.
 function status() {
-  const file = keyFile();
-  const configured = fs.existsSync(file);
-  let last4 = "";
-  if (configured && encryptionAvailable()) {
+  const enc = encryptionAvailable();
+  let map = {};
+  if (enc) {
     try {
-      last4 = readKey().slice(-4);
+      map = readAll();
     } catch {
-      /* corrupt; reported via configured + a test() call */
+      /* corrupt; surfaced via a test() call */
     }
   }
-  return { configured, last4, encryptionAvailable: encryptionAvailable() };
+  const providers = {};
+  for (const p of PROVIDERS) {
+    const k = (map[p] || "").trim();
+    providers[p] = { configured: Boolean(k), last4: k ? k.slice(-4) : "" };
+  }
+  return { encryptionAvailable: enc, providers };
 }
 
-module.exports = { readKey, setKey, clearKey, status, encryptionAvailable };
+module.exports = { readKey, setKey, clearKey, status, encryptionAvailable, PROVIDERS };

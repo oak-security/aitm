@@ -27,11 +27,11 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--paper); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased; }
+body { background: var(--paper); color: var(--ink); font-size: 14px; -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; }
 button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
 /* ---------- shell ---------- */
-.app-shell { display: grid; grid-template-columns: 272px 1fr; height: 100vh; }
+.app-shell { display: grid; grid-template-columns: 272px 1fr; flex: 1 1 auto; min-height: 0; }
 .sidebar { background: var(--ink); color: var(--paper-on-ink); display: flex; flex-direction: column; min-height: 0; }
 .main { overflow-y: auto; min-height: 0; }
 
@@ -145,6 +145,19 @@ table.editor td textarea { min-height: 68px; width: 100%; line-height: 1.45; }
 
 .toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 11px 18px; border-radius: var(--radius-sm); box-shadow: 0 10px 30px rgba(0,0,0,0.25); z-index: 50; max-width: 70ch; }
 .toast.err { background: var(--danger); }
+
+/* persistent full-width AI status bar at the bottom */
+.aistatus { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 46px; padding: 0 18px; background: var(--ink); color: var(--paper-on-ink); border-top: 2px solid var(--gold); font-size: 0.85rem; }
+.aistatus-left, .aistatus-right { display: flex; align-items: center; gap: 14px; min-height: 22px; }
+.aistatus-tag { font-weight: 800; letter-spacing: 0.08em; font-size: 0.7rem; background: var(--gold); color: var(--ink); border-radius: 5px; padding: 2px 8px; }
+.aistatus-provider { font-weight: 600; }
+.aistatus-key { display: inline-flex; align-items: center; gap: 7px; color: var(--muted-on-ink); }
+.aistatus-text { font-variant-numeric: tabular-nums; }
+.aistatus-idle { color: var(--muted-on-ink); }
+.aistatus-err { color: #ffb4ac; max-width: 60ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aistatus .spinner { border-color: rgba(255,255,255,0.35); border-top-color: var(--gold); }
+.aistatus-cancel { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: var(--paper-on-ink); border-radius: 999px; padding: 3px 12px; font-size: 0.78rem; cursor: pointer; }
+.aistatus-cancel:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
 
 /* modal prompt */
 .modal-back { position: fixed; inset: 0; background: rgba(14,17,22,0.45); display: grid; place-items: center; z-index: 60; }

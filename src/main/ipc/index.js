@@ -45,14 +45,14 @@ function registerIpc() {
   handle("projects.export", ({ id }) => store.exportProject(id));
   handle("projects.import", ({ json }) => store.importProject(json));
 
-  // ---- keystore ----
+  // ---- keystore (per provider) ----
   handle("keystore.status", () => keystore.status());
-  handle("keystore.set", ({ key }) => keystore.setKey(key));
-  handle("keystore.clear", () => keystore.clearKey());
-  handle("keystore.test", async () => {
-    const key = keystore.readKey();
-    if (!key) throw appError("key_missing", "No API key configured.");
-    const adapter = getAdapter(settings.get().provider);
+  handle("keystore.set", ({ provider, key }) => keystore.setKey(provider, key));
+  handle("keystore.clear", ({ provider }) => keystore.clearKey(provider));
+  handle("keystore.test", async ({ provider }) => {
+    const key = keystore.readKey(provider);
+    if (!key) throw appError("key_missing", "No API key configured for this provider.");
+    const adapter = getAdapter(provider);
     await adapter.validateKey(key);
     return { ok: true };
   });
@@ -133,6 +133,8 @@ function registerIpc() {
     };
     return store.persist(project);
   });
+
+  handle("ai.cancel", () => orchestrate.cancelAll());
 
   // ---- report PDF export ----
   handle("report.exportPdf", async ({ projectId }) => {

@@ -82,12 +82,13 @@ const state = {
   projects: [],
   project: null,
   view: "overview",
-  keyStatus: { configured: false, last4: "", encryptionAvailable: true },
+  keyStatus: { encryptionAvailable: true, providers: {} },
   settings: null,
   busy: {},
   treeSel: [],     // persisted attack-tree threat selection (survives re-render/build)
   auto: false,     // full-pipeline run in progress
-  autoStatus: ""
+  autoStatus: "",
+  keyVerified: {}  // provider -> true once a key has tested OK or a call succeeded
 };
 
 const app = document.getElementById("app");
@@ -106,6 +107,46 @@ function toast(message, isError) {
   t.hidden = false;
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => { t.hidden = true; }, isError ? 6000 : 3000);
+}
+
+// ---- persistent AI status bar (imperative; outside #app so render() never wipes it) ----
+let streamLabel = "";
+let streamTokens = 0;
+let streamError = "";
+function markVerified() {
+  state.keyVerified[activeProvider()] = true;
+  renderStatusBar();
+}
+function renderStatusBar() {
+  const el = document.getElementById("aistatus");
+  const provId = activeProvider();
+  const provLabel = (PROVIDERS[provId] || {}).label || provId;
+  const ks = keyState(provId);
+  const keyText = !ks.configured ? "no key set" : `key ${state.keyVerified[provId] ? "valid" : "set"} ····${ks.last4}`;
+  const busy = aiInFlight();
+  let right;
+  if (busy) {
+    right = `<span class="spinner"></span><span class="aistatus-text">${esc(streamLabel || "Working")}… ${streamTokens.toLocaleString()} tokens</span><button class="aistatus-cancel" data-action="cancel-ai">Cancel</button>`;
+  } else if (streamError) {
+    right = `<span class="aistatus-err">⚠ ${esc(streamError)}</span><button class="aistatus-cancel" data-action="dismiss-err">Dismiss</button>`;
+  } else {
+    right = '<span class="aistatus-idle">Idle</span>';
+  }
+  el.innerHTML = `
+    <div class="aistatus-left">
+      <span class="aistatus-tag">AI</span>
+      <span class="aistatus-provider">${esc(provLabel)}</span>
+      <span class="aistatus-key"><span class="dot ${ks.configured ? "on" : "off"}"></span>${esc(keyText)}</span>
+    </div>
+    <div class="aistatus-right">${right}</div>`;
+}
+function onStreamEvent(p) {
+  if (!p) return;
+  if (p.event === "start") { streamLabel = p.label; streamTokens = 0; streamError = ""; }
+  else if (p.event === "progress") { if (p.label) streamLabel = p.label; streamTokens = p.tokens || streamTokens; }
+  else if (p.event === "end") { streamTokens = p.tokens || streamTokens; }
+  else if (p.event === "error") { streamError = p.message || "Failed."; }
+  renderStatusBar();
 }
 
 // Promise-based text prompt (window.prompt is unavailable in Electron). Lives on
@@ -175,12 +216,31 @@ function isEnabled(id) {
   return state.project && Array.isArray(state.project.phasesEnabled) && state.project.phasesEnabled.includes(id);
 }
 
+// Active provider and its per-provider key status.
+function activeProvider() {
+  return (state.settings && state.settings.provider) || "openai";
+}
+function keyState(provider = activeProvider()) {
+  return (state.keyStatus.providers && state.keyStatus.providers[provider]) || { configured: false, last4: "" };
+}
+function keyConfigured() {
+  return keyState().configured;
+}
+function keyPlaceholder(provider) {
+  return provider === "anthropic" ? "sk-ant-…" : "sk-…";
+}
+
 /* ---------------- data loading ---------------- */
 
 async function init() {
   app.addEventListener("click", onClick);
   app.addEventListener("input", onBind);
   app.addEventListener("change", onBind);
+  document.getElementById("aistatus").addEventListener("click", (e) => {
+    if (e.target.closest("[data-action='cancel-ai']")) { api.ai.cancel(); toast("Cancelling…"); }
+    else if (e.target.closest("[data-action='dismiss-err']")) { streamError = ""; renderStatusBar(); }
+  });
+  api.ai.onStream(onStreamEvent);
   await refreshAll();
 }
 
@@ -209,8 +269,16 @@ async function openProject(id, doRender = true) {
 
 /* ---------------- render: shell ---------------- */
 
+// True while any AI provider call (single step or the full pipeline) is in flight.
+function aiInFlight() {
+  if (state.auto) return true;
+  return ["ai-classify", "ai-trace-model", "ai-stride", "ai-coordination", "ai-report", "ai-attack-tree", "process-sources"]
+    .some((k) => state.busy[k]);
+}
+
 function render() {
   app.innerHTML = `${sidebar()}<main class="main">${state.project ? viewHtml() : emptyState()}</main>`;
+  renderStatusBar();
 }
 
 function sidebar() {
@@ -249,8 +317,6 @@ function sidebar() {
       <li><button class="${state.view === "settings" ? "active" : ""}" data-action="view" data-view="settings"><span class="num">⚙</span> Settings</button></li>
     </ul>
     <div class="sidebar-footer">
-      <div class="key-state"><span class="dot ${state.keyStatus.configured ? "on" : "off"}"></span>
-        API key ${state.keyStatus.configured ? `set ····${esc(state.keyStatus.last4)}` : "not set"}</div>
       <a data-action="reveal-folder">Reveal data folder</a>
     </div>
   </aside>`;
@@ -314,9 +380,10 @@ function addButton(action, label) {
 }
 
 function aiGateNotice() {
-  if (state.keyStatus.configured) return "";
-  return `<div class="notice warn"><h3>No API key configured</h3>
-    <p>AI drafting needs your provider API key. Add it in <a data-action="view" data-view="settings" style="text-decoration:underline;cursor:pointer">Settings</a>. The key is stored encrypted on this device and never leaves it except in calls to the provider.</p></div>`;
+  if (keyConfigured()) return "";
+  const label = (PROVIDERS[activeProvider()] || {}).label || "provider";
+  return `<div class="notice warn"><h3>No ${esc(label)} API key configured</h3>
+    <p>AI drafting needs your ${esc(label)} API key. Add it in <a data-action="view" data-view="settings" style="text-decoration:underline;cursor:pointer">Settings</a>. The key is stored encrypted on this device and never leaves it except in calls to the provider.</p></div>`;
 }
 
 function overviewView() {
@@ -576,34 +643,40 @@ function modelOptions(list, current) {
 
 function settingsView() {
   const s = state.settings || {};
-  const k = state.keyStatus;
-  const prov = PROVIDERS[s.provider] || PROVIDERS.openai;
+  const provId = s.provider || "openai";
+  const prov = PROVIDERS[provId] || PROVIDERS.openai;
+  const ks = keyState(provId);
+  const enc = state.keyStatus.encryptionAvailable !== false;
   return `<div class="view">
-    ${viewHeader("Configuration", "Settings", "Provider, models, and your API key. The key is stored encrypted on this device.")}
-    ${!k.encryptionAvailable ? '<div class="notice warn"><h3>Secure storage unavailable</h3><p>The OS keychain is not available, so the API key cannot be stored securely and will not be saved.</p></div>' : ""}
+    ${viewHeader("Configuration", "Settings", "Choose a provider, then manage its own API key and models. Each provider keeps a separate key, stored encrypted on this device.")}
+    ${!enc ? '<div class="notice warn"><h3>Secure storage unavailable</h3><p>The OS keychain is not available, so API keys cannot be stored securely and will not be saved.</p></div>' : ""}
     <div class="card">
-      <h2 style="margin-top:0">API key</h2>
-      <div class="key-row"><label class="field"><span>${k.configured ? `Key set (····${esc(k.last4)})` : "Provider API key"}</span>
-        <input type="password" id="apikey" placeholder="${k.configured ? "Enter a new key to replace" : "sk-…"}" /></label></div>
+      <label class="field" style="margin-bottom:0"><span>AI provider</span>
+        <select class="input" data-setting="provider">
+          ${Object.entries(PROVIDERS).map(([id, def]) => `<option value="${id}" ${provId === id ? "selected" : ""}>${esc(def.label)}</option>`).join("")}
+        </select></label>
+    </div>
+
+    <div class="card">
+      <div class="spread" style="margin-bottom:6px">
+        <h2 style="margin:0">${esc(prov.label)}</h2>
+        <span class="pill ${ks.configured ? "gold" : ""}">${ks.configured ? `key ····${esc(ks.last4)}` : "no key set"}</span>
+      </div>
+      <label class="field"><span>${esc(prov.label)} API key</span>
+        <input type="password" id="apikey" placeholder="${ks.configured ? "Enter a new key to replace" : keyPlaceholder(provId)}" /></label>
       <div class="row">
         <button class="btn" data-action="save-key">Save key</button>
         <button class="btn ghost" data-action="test-key">Test key</button>
-        ${k.configured ? '<button class="btn danger" data-action="clear-key">Clear</button>' : ""}
+        ${ks.configured ? '<button class="btn danger" data-action="clear-key">Clear</button>' : ""}
       </div>
-    </div>
-    <div class="card">
-      <h2 style="margin-top:0">Provider & models</h2>
-      <label class="field"><span>Provider</span>
-        <select class="input" data-setting="provider">
-          ${Object.entries(PROVIDERS).map(([id, def]) => `<option value="${id}" ${s.provider === id ? "selected" : ""}>${esc(def.label)}</option>`).join("")}
-        </select></label>
+      <h2 style="font-size:1rem">Models</h2>
       <div class="grid-2">
         <label class="field"><span>Fast model</span><select class="input" data-setting="modelFast">${modelOptions(prov.fast, s.modelFast)}</select></label>
         <label class="field"><span>Deep model</span><select class="input" data-setting="modelDeep">${modelOptions(prov.deep, s.modelDeep)}</select></label>
       </div>
-      <p class="hint">Fast model: classification, model drafting, attack trees. Deep model: STRIDE, coordination, report. Switching provider needs that provider’s API key.</p>
+      <p class="hint" style="margin-bottom:0">Fast model: classification, model drafting, attack trees. Deep model: STRIDE, coordination, report.</p>
     </div>
-    <div class="notice"><p>Threat modeling sends source digests to the configured provider. Nothing is uploaded except in those calls. Keep sensitive engagements in mind.</p></div>
+    <div class="notice"><p>Threat modeling sends source digests to the selected provider. Nothing is uploaded except in those calls. Keep sensitive engagements in mind.</p></div>
   </div>`;
 }
 
@@ -725,10 +798,11 @@ async function runBusy(key, fn) {
 }
 
 async function runAi(key, fn) {
-  if (!state.keyStatus.configured) { toast("Add your API key in Settings first.", true); return; }
+  if (!keyConfigured()) { toast("Add your API key in Settings first.", true); return; }
   setBusy(key, true); render();
   try {
     state.project = await fn();
+    markVerified();
     toast("Draft updated.");
   } finally {
     setBusy(key, false); render();
@@ -780,11 +854,9 @@ async function doDeleteProject() {
   const name = state.project.project.name;
   if (!window.confirm(`Delete "${name}"? This permanently removes the project and cannot be undone.`)) return;
   await api.projects.remove(pid());
+  await api.projects.setActive("");      // no active project -> show the start screen
   state.projects = await api.projects.list();
-  const next = (await api.projects.getActive()).id; // store clears the pointer if the active one was deleted
-  if (next) state.project = await api.projects.get(next);
-  else if (state.projects.length) { await api.projects.setActive(state.projects[0].id); state.project = await api.projects.get(state.projects[0].id); }
-  else state.project = null;
+  state.project = null;
   state.view = "overview";
   render();
   toast(`Deleted "${name}".`);
@@ -792,11 +864,12 @@ async function doDeleteProject() {
 
 // "Ingest" CTA: process the added sources by running classification, then open Overview.
 async function doProcessSources() {
-  if (!state.keyStatus.configured) { toast("Add your API key in Settings first.", true); return; }
+  if (!keyConfigured()) { toast("Add your API key in Settings first.", true); return; }
   if (!state.project.sources.length) { toast("Add at least one folder or file first.", true); return; }
   setBusy("process-sources", true); render();
   try {
     state.project = await api.ai.classify(pid());
+    markVerified();
     toast("Sources ingested and classified.");
     state.view = "overview";
   } catch (err) {
@@ -831,7 +904,7 @@ function topThreats(threats, n) {
 }
 
 async function doAutoRun() {
-  if (!state.keyStatus.configured) { toast("Add your API key in Settings first.", true); return; }
+  if (!keyConfigured()) { toast("Add your API key in Settings first.", true); return; }
   if (!window.confirm("Run the full pipeline? This classifies, builds the TRACE model, runs STRIDE, then builds attack trees, coordination, and the report for enabled phases — auto-approving each step. Existing drafts will be overwritten.")) return;
   state.auto = true;
   state.busy["auto-run"] = true;
@@ -849,6 +922,7 @@ async function doAutoRun() {
     }
     if (isEnabled("coordination")) { step("Analyzing collusion & coordination…"); state.project = await api.ai.coordination(pid()); }
     if (isEnabled("report")) { step("Writing the report…"); state.project = await api.ai.report(pid()); }
+    markVerified();
     toast("Full pipeline complete.");
     state.view = "report";
   } catch (err) {
@@ -868,11 +942,12 @@ async function doExportMarkdown() {
 }
 
 async function doBuildTree() {
-  if (!state.keyStatus.configured) { toast("Add your API key in Settings first.", true); return; }
+  if (!keyConfigured()) { toast("Add your API key in Settings first.", true); return; }
   const selected = state.treeSel.slice(); // persisted selection; not cleared by building
   setBusy("ai-attack-tree", true); render();
   try {
     state.project = await api.ai.attackTree(pid(), { threatIds: selected });
+    markVerified();
     toast(selected.length > 1 ? "Attack trees built." : "Attack tree built.");
   } finally { setBusy("ai-attack-tree", false); render(); }
 }
@@ -888,25 +963,34 @@ async function doTogglePhase(id) {
 }
 
 async function doSaveKey() {
+  const provider = activeProvider();
   const field = document.getElementById("apikey");
   const key = field ? field.value.trim() : "";
   if (!key) { toast("Enter a key first.", true); return; }
-  state.keyStatus = await api.keystore.set(key);
-  toast("API key saved. Testing…");
+  state.keyStatus = await api.keystore.set(provider, key);
+  state.keyVerified[provider] = false; // unverified until tested
+  toast(`${PROVIDERS[provider].label} key saved. Testing…`);
   await doTestKey();
 }
 async function doTestKey() {
+  const provider = activeProvider();
   try {
-    await api.keystore.test();
-    toast("API key works.");
-  } catch (err) { toast("Key test failed: " + humanError(err), true); }
+    await api.keystore.test(provider);
+    state.keyVerified[provider] = true;
+    toast(`${PROVIDERS[provider].label} key works.`);
+  } catch (err) {
+    state.keyVerified[provider] = false;
+    toast("Key test failed: " + humanError(err), true);
+  }
   state.keyStatus = await api.keystore.status();
   render();
 }
 async function doClearKey() {
-  state.keyStatus = await api.keystore.clear();
+  const provider = activeProvider();
+  state.keyStatus = await api.keystore.clear(provider);
+  delete state.keyVerified[provider];
   render();
-  toast("API key cleared.");
+  toast(`${PROVIDERS[provider].label} key cleared.`);
 }
 
 async function doExportPdf() {

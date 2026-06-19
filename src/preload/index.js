@@ -19,9 +19,9 @@ contextBridge.exposeInMainWorld("api", {
   },
   keystore: {
     status: () => invoke("keystore.status"),
-    set: (key) => invoke("keystore.set", { key }),
-    clear: () => invoke("keystore.clear"),
-    test: () => invoke("keystore.test")
+    set: (provider, key) => invoke("keystore.set", { provider, key }),
+    clear: (provider) => invoke("keystore.clear", { provider }),
+    test: (provider) => invoke("keystore.test", { provider })
   },
   settings: {
     get: () => invoke("settings.get"),
@@ -41,7 +41,14 @@ contextBridge.exposeInMainWorld("api", {
     stride: (projectId) => invoke("ai.stride", { projectId }),
     attackTree: (projectId, selection) => invoke("ai.attackTree", { projectId, selection }),
     coordination: (projectId) => invoke("ai.coordination", { projectId }),
-    report: (projectId) => invoke("ai.report", { projectId })
+    report: (projectId) => invoke("ai.report", { projectId }),
+    cancel: () => invoke("ai.cancel"),
+    // Subscribe to streaming events ({ event, label, text, message }). Returns an unsubscribe.
+    onStream: (cb) => {
+      const listener = (_e, payload) => cb(payload);
+      ipcRenderer.on("ai:stream", listener);
+      return () => ipcRenderer.removeListener("ai:stream", listener);
+    }
   },
   report: {
     exportPdf: (projectId) => invoke("report.exportPdf", { projectId }),
