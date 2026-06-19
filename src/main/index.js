@@ -19,7 +19,7 @@ const EXTERNAL_HOST_ALLOWLIST = new Set([
   "github.com",
   "creativecommons.org",
   "platform.openai.com",
-  "mostlyharmless.io"
+  "oaksecurity.io"
 ]);
 
 function createWindow() {
