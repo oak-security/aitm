@@ -1,4 +1,4 @@
-# Specification — AiTM · AI Threat Modeller (Mostly Harmless edition)
+# Specification — AiTM · AI Threat Modeller (Oak Security edition)
 
 Status: draft v0.1 · Owner: Stefan Beyer · Date: 2026-06-18
 
@@ -7,8 +7,8 @@ Status: draft v0.1 · Owner: Stefan Beyer · Date: 2026-06-18
 A local-first desktop application that runs the **TRACE** threat-modeling framework
 with heavy AI assistance. It ports the existing web app
 (`/Users/stefanbeyer/Documents/bot-runs/thread-model-dashboard`) to a packaged desktop
-app, re-skinned with **Mostly Harmless (MHL·42)** branding, generalized beyond Web3,
-with the user supplying their own AI API key.
+app, **Oak Security**-branded, generalized beyond Web3, with the user supplying their
+own AI API key. (Originally prototyped with Mostly Harmless branding; now Oak.)
 
 Product name: **AiTM** — "AI Threat Modeller". Bundle identifier and display name use
 this; finalize the reverse-DNS bundle id before first build.
@@ -27,7 +27,7 @@ this; finalize the reverse-DNS bundle id before first build.
 
 In scope (v1):
 - Electron desktop app for macOS, Windows, Linux.
-- MHL branding and design system.
+- Oak Security branding and design system.
 - User-provided OpenAI API key, encrypted on-device. Provider abstraction for later.
 - Generic threat modeling with domain profiles (Web3 retained as one profile).
 - Full TRACE phase workflow with per-project optional phases.
@@ -37,8 +37,11 @@ In scope (v1):
   hold **several sources** (e.g. a code folder plus a docs folder/files), which
   complement each other.
 
+Implemented since the original draft: OpenAI **and** Anthropic providers ship, calls
+stream (SSE) with cancel, keys are stored per provider, and a CI release workflow +
+electron-updater are wired.
+
 Non-goals (v1):
-- Multiple AI providers shipped (architecture allows it; only OpenAI ships).
 - Remote ingestion: GitHub-repo clone and repo-ZIP upload (deferred; design hooks and
   the existing hardening from the source app are kept for v1.1).
 - Private-repo PAT ingestion (with GitHub ingestion, v1.1).
@@ -71,7 +74,7 @@ a Tauri sidecar without touching the renderer.
 │ Renderer (untrusted)            Preload (bridge)     Main (trusted)  │
 │  index.html / styles.css   ──▶  window.api.* via  ──▶ IPC handlers   │
 │  app.js (workbench)             contextBridge        ├ keystore      │
-│  MHL assets, Inter              (typed, no Node)     ├ projects (fs) │
+│  Oak assets, BDO Grotesk        (typed, no Node)     ├ projects (fs) │
 │                                                      ├ ingest/*      │
 │                                                      ├ ai/adapters   │
 │                                                      ├ report+pdf    │
@@ -89,19 +92,26 @@ a Tauri sidecar without touching the renderer.
 
 ## 6. AI provider and key model
 
-- **Adapter interface**: `{ id, label, models: {fast, deep}, validateKey(key),
-  structuredCall({model, name, schema, system, user, key}) }`.
-- **v1 adapter**: `OpenAIResponsesAdapter` targeting `POST /v1/responses` with JSON
-  schema structured output. Default models `gpt-5-mini` (fast) and `gpt-5.5` (deep),
-  matching the source app; both overridable in Settings.
-- **Key handling**: entered in Settings, encrypted via `safeStorage`, stored in
-  `userData/keystore.bin`. The renderer can set/clear/test the key and read only a
-  boolean "configured" status and a redacted last-4 hint. The key is injected into
-  provider calls in the main process only.
-- **Key validation**: a lightweight models/ping call on save; surface clear errors
-  (missing, invalid, rate-limited, network).
-- **Privacy notice**: first AI send shows a one-time, persistent-dismissable notice
-  that source digests are transmitted to the configured provider.
+- **Adapter interface**: `{ id, label, validateKey(key),
+  structuredCall({model, name, schema, system, user, key, signal, onDelta, effort}) }`.
+- **Adapters (both ship)**: `OpenAIResponsesAdapter` (`POST /v1/responses`, JSON-schema
+  strict; `effort`→`reasoning.effort` on GPT-5) and `AnthropicAdapter` (Messages API,
+  forced tool call). Selected by `settings.provider`. Defaults — OpenAI: `gpt-5-mini`
+  (fast) / `gpt-5.5` (deep); Anthropic: `claude-sonnet-4-6` (fast) / `claude-opus-4-8`
+  (deep). All overridable via Settings dropdowns. The report and other synthesis steps
+  use the fast model; STRIDE/coordination use the deep model.
+- **Streaming & cancel**: calls stream (SSE) with no wall-clock timeout; in-flight
+  calls are cancellable (`AbortController` registry → `ai.cancel`). A status bar shows
+  the stage and a live (approximate) token count, "thinking…" before output begins.
+- **Key handling (per provider)**: keys are stored as an encrypted
+  `{ openai, anthropic }` map in `userData/keystore.bin` via `safeStorage`. The renderer
+  sets/clears/tests a key per provider and reads only `{ configured, last4 }` plus an
+  in-session verified flag. Keys are injected into provider calls in the main process
+  only. Settings has a provider selector with a provider-specific key + models block.
+- **Key validation**: a lightweight ping call on Test (or first successful call) marks
+  the provider's key verified; errors surfaced clearly (missing, invalid, network).
+- **Privacy notice**: Settings states that source digests are sent to the selected
+  provider on each AI call.
 
 ## 7. Phase model (TRACE)
 
@@ -190,33 +200,35 @@ only digests/summaries/excerpts.
 
 All handlers validate input and run in the main process.
 
+Each `ai.*` call persists its result into the project and returns the updated project.
+The full pipeline (re-run reset + sequencing) is orchestrated in the renderer, not a
+single IPC call. Streaming progress arrives out-of-band via the `ai:stream` event.
+
 ```
-projects.list() / get(id) / create(input) / update(id, patch) / delete(id)
-projects.export(id) -> json   |   projects.import(json) -> projectId
+projects.list() / get(id) / create(input) / update(id, patch) / remove(id)
+projects.export(id) -> json   |   projects.import(json) -> project
+projects.reset(id) -> project   // clear AI-derived data; keep sources/scope/phases
 projects.setActive(id) / getActive()
 
-keystore.status() -> { configured, last4 }
-keystore.set(key) -> { ok, error? }   |  keystore.clear()
-keystore.test() -> { ok, error? }
+keystore.status() -> { encryptionAvailable, providers: { openai:{configured,last4}, anthropic:{...} } }
+keystore.set(provider, key) / clear(provider) / test(provider)
 
-settings.get() / settings.set(patch)        // models, provider, privacy ack
+settings.get() / settings.set(patch)        // provider, modelFast, modelDeep, privacyAck
 
-ingest.folder({ path })       -> { sourceId, summary, warnings }   // local dir (native picker)
-ingest.files({ paths })       -> { sourceId, summary, warnings }   // local files (docs/source)
-ingest.removeSource(projectId, sourceId)
+ingest.folder()  -> { canceled } | { source }            // native dir picker
+ingest.files()   -> { canceled } | { sources, errors }   // native file picker
+ingest.removeSource(projectId, sourceId) -> project
 // v1 is local-only; ingest.github / ingest.upload(zip) are deferred to v1.1.
 
-ai.classify(projectId)        -> classification draft
-ai.traceModel(projectId)      -> trace-model draft
-ai.stride(projectId)          -> stride draft
-ai.attackTree(projectId, sel) -> attack-tree draft
-ai.coordination(projectId)    -> coordination draft
-ai.report(projectId)          -> report html/source
-ai.autorun(projectId)         -> streamed phase checkpoints
+ai.classify(projectId) / traceModel / stride / coordination / report  -> project
+ai.attackTree(projectId, { threatIds }) -> project   // one tree per new threat, accumulative
+ai.cancel() -> { cancelled }
+ai.onStream(cb)  // 'ai:stream' events: { event: start|progress|end|error, label, tokens, message }
 
-report.exportPdf(projectId)   -> file path (save dialog)
+report.exportPdf(projectId) / exportMarkdown(projectId) -> { canceled } | { path }
 
-phases.registry()             -> phase metadata for the active classification
+phases.registry(classification) -> phase metadata (required/optional/defaultEnabled)
+app.revealDataFolder()
 ```
 
 ## 11. Security model
@@ -240,15 +252,18 @@ for the app itself:
 - **Data exfiltration to AI provider** → explicit privacy notice; egress restricted to
   the configured provider host.
 
-## 12. Design system (MHL·42)
+## 12. Design system (Oak Security)
 
-- Palette: Ink `#0E1116`, Paper `#FAF6EE`, Don't-Panic Gold `#F5C518`. Gold once per
-  surface. Logo recoloring limited to ink/paper/gold; no shadow/stretch/rotate.
-- Typography: Inter (400/500/700/800), vendored woff2.
-- Layout reuses the source workbench shape (left nav of enabled phases, dense panels,
-  approval gates, export view) re-skinned to MHL tokens. Tokens live in `styles.css`
-  as CSS custom properties so a future theme swap is contained.
-- App icon from MHL icon set (512px gold/ink); window/about shows mark + phrase once.
+- Palette: ink `#000`, workspace `#F7F6F5`, brand gold `#FFC965` → magenta `#9C0069`
+  gradient (`--gradient`); severity high `#8a005d`, critical `#5b0019`.
+- Typography: BDO Grotesk (400/500/700/800), vendored woff2.
+- Buttons: primary is ink, hover morphs to the gradient; danger is magenta outline.
+  Active nav is a solid white pill. Gradient accents on section rules, the status bar,
+  and the active-nav badge. Tokens live in `styles.css` `:root` (contained theme swap).
+- The AiTM node-graph mark is the app logo (sidebar + window/dock icon). The Oak logo
+  appears only as a "by Oak Security" lockup in the sidebar footer.
+- Report PDF/HTML is Oak-branded but states it was prepared independently using Oak
+  tooling, dependent on user input.
 
 ## 13. Packaging & distribution
 

@@ -14,8 +14,10 @@ the web app at `/Users/stefanbeyer/Documents/bot-runs/thread-model-dashboard`
 Differences from the source web app:
 
 - **Electron desktop app**, not a hosted web server. No GitHub OAuth org gating.
-- **Mostly Harmless (MHL·42) branding**, not Oak. See "Branding invariants".
-- **User-supplied AI API key**, stored encrypted on-device. Not a backend `.env`.
+- **Oak Security branding** (BDO Grotesk, gold→magenta). The AiTM node-graph mark is
+  the app logo; the Oak logo appears as a "by Oak Security" lockup. See "Branding".
+- **User-supplied AI API keys**, one per provider, stored encrypted on-device (not a
+  backend `.env`). OpenAI and Anthropic both ship.
 - **Generic** threat modeling, not Web3-only. Web3 remains a first-class profile.
 - **TRACE phases are optional/toggleable** per project, except the core required set.
 
@@ -26,13 +28,16 @@ Product name: **AiTM** — "AI Threat Modeller" (also the working-directory name
 - **Electron** (latest LTS-aligned major). `contextIsolation: true`,
   `nodeIntegration: false`, `sandbox: true`.
 - **Main process** (Node): app lifecycle, windows, IPC handlers, secure key store,
-  file-based project store, ingestion (git/zip/doc), AI provider adapters, PDF export.
+  file-based project store, local ingestion (folder/files), AI provider adapters
+  (streaming, SSE), report assembly + PDF export, electron-updater.
 - **Preload**: `contextBridge`-exposed typed API only. No raw `ipcRenderer`, no Node
-  globals reach the renderer.
-- **Renderer**: ported vanilla HTML/CSS/JS from the source app. No framework required.
-  A fetch→IPC shim keeps the ported `app.js` close to the original.
-- **Packaging**: `electron-builder`. macOS notarized (Developer ID), Windows
-  Authenticode-signed, Linux AppImage + deb.
+  globals reach the renderer. Also exposes an `ai.onStream` event subscription.
+- **Renderer**: vanilla HTML/CSS/JS (wrapped in an IIFE so top-level consts don't
+  collide with the non-configurable `window.api` global). No framework. Calls
+  `window.api.*`; a persistent AI status bar consumes streamed progress events.
+- **Packaging**: `electron-builder` (config in `electron-builder.js`). macOS notarized
+  (Developer ID), Windows NSIS, Linux AppImage + deb. CI release on `v*` tags. Updates
+  via `electron-updater` from GitHub Releases.
 
 There is intentionally **no heavy frontend build step**. Keep the renderer simple.
 
@@ -44,26 +49,30 @@ AiTM/
   SPEC.md             # product + technical spec
   PLAN.md             # implementation plan / milestones
   package.json
-  electron-builder.yml
+  electron-builder.js   # build/sign/notarize config + GitHub publish
+  .github/workflows/release.yml
+  build/                # icon.icns/png, entitlements, render-icon helper (buildResources)
   src/
     main/             # main process
-      index.js        # app bootstrap, window, menu, lifecycle
-      ipc/            # one module per IPC channel group; validates all input
-      keystore.js     # safeStorage-backed API-key vault
-      projects/       # file-based project store + schema/migrations
-      ingest/         # folder.js, files.js (+ deferred github.js/zip.js for v1.1)
-      ai/             # provider adapters + structured-call orchestration
-      report/         # report assembly + PDF export
+      index.js        # app bootstrap, window, menu, lifecycle, auto-update
+      stream.js       # emitStream -> renderer 'ai:stream' events
+      ipc/            # IPC handlers; validates all input
+      keystore.js     # safeStorage-backed per-provider key vault
+      projects/       # file-based store + schema/migrations (store.resetAnalysis)
+      ingest/         # folder.js, files.js, digest.js (deferred github/zip for v1.1)
+      ai/             # index (registry), openai-responses, anthropic, sse, prompts,
+                      #   schemas, orchestrate (streaming, cancel, effort)
+      report/         # render.js (md->html) + pdf.js (Oak-branded)
       phases.js       # TRACE phase registry (required/optional/appliesWhen)
     preload/
-      index.js        # contextBridge API surface
+      index.js        # contextBridge API surface (+ ai.onStream)
     renderer/
       index.html
-      styles.css      # MHL design tokens live here
-      app.js          # ported workbench logic, calls window.api.*
-      assets/         # MHL logos, Inter font, icons (vendored)
+      styles.css      # Oak design tokens live here
+      app.js          # workbench logic, calls window.api.*
+      assets/         # AiTM mark + app icon, oak-white/black.svg, BDO Grotesk (vendored)
   test/
-    fixtures/         # ingestion + AI fixtures (DeFi, L1, generic IT, web app...)
+    core.test.js      # schema migration, phase seeding, render, ingestion guards
 ```
 
 ## Build / run / test
@@ -91,11 +100,12 @@ Treat the **renderer as untrusted**. The main process is the trust boundary.
 3. **Validate every IPC payload** in the main process (type, size, shape, path
    confinement). Never pass renderer strings to `child_process` or `fs` without
    validation.
-4. **API key**: stored only via `safeStorage` (OS keychain/DPAPI/libsecret),
-   encrypted at rest in `userData`. Check `safeStorage.isEncryptionAvailable()`;
-   if false, warn explicitly and do not silently downgrade. The key must never
-   appear in: project files, JSON exports, reports, logs, crash dumps, or IPC
-   responses back to the renderer. The renderer only sees "key set: yes/no".
+4. **API keys** (one per provider): stored only via `safeStorage` (OS keychain/DPAPI/
+   libsecret) as an encrypted `{ openai, anthropic }` map in `userData/keystore.bin`.
+   Check `safeStorage.isEncryptionAvailable()`; if false, warn and do not silently
+   downgrade. Keys must never appear in: project files, JSON exports, reports, logs,
+   crash dumps, or IPC responses to the renderer. The renderer only sees per-provider
+   `{ configured, last4 }` (and, in-session, a verified flag from a successful call).
 5. **Ingestion hardening** — v1 is local-only (folder and/or files); a project may
    hold several sources that complement each other:
    - Local folder: user-picked via native dialog; confine the walk to the chosen
@@ -106,23 +116,28 @@ Treat the **renderer as untrusted**. The main process is the trust boundary.
    - Deferred to v1.1 (GitHub clone, ZIP upload): keep the source app's SSRF/IP
      allowlisting + DNS re-resolution and zip-slip/symlink/ratio/count guards, but do
      not wire them in v1.
-6. **AI egress**: requests go only to the configured provider host over TLS. Source
-   digests leave the device to that provider. The UI must surface this privacy fact
-   before first send.
+6. **AI egress**: requests go only to the configured provider host over TLS, and are
+   streamed (SSE) with no wall-clock timeout; in-flight calls are cancellable via an
+   `AbortController` registry (`orchestrate.cancelAll` / `ai.cancel`). Source digests
+   leave the device to that provider — the UI surfaces this in Settings.
 7. Auto-update (if enabled) must verify signatures. Disable devtools and the
    reload/inspect menu items in production builds.
 8. No telemetry without an explicit, default-off opt-in.
 
-## Branding invariants (MHL·42)
+## Branding (Oak Security)
 
-Source: https://github.com/mhl42/branding. Vendor assets into `renderer/assets/`.
+Tokens live in `renderer/styles.css` `:root`. Reference: https://github.com/oak-security/resources/tree/main/brand.
 
-- Colors only: **Ink `#0E1116`**, **Paper `#FAF6EE`**, **Don't-Panic Gold `#F5C518`**.
-- Gold is a single accent **used once per surface**. Never recolor the logo except in
-  ink/paper/gold. No shadows, stretching, or rotation of the mark.
-- Typography: **Inter** (400/500/700/800). Vendor the woff2 files; do not hotlink.
-- Use the mark + phrase on first contact (window splash / about), drop it for repeats.
-- Replace all Oak assets (BDO Grotesk, oak logos, `#FFC965`→`#9C0069`) — none ship.
+- Palette: ink `#000`, workspace `#F7F6F5`, brand **gold `#FFC965` → magenta `#9C0069`**
+  gradient (`--gradient`). Severity: high `#8a005d`, critical `#5b0019`.
+- Typography: **BDO Grotesk** (400/500/700/800), vendored woff2; do not hotlink.
+- Buttons: primary is ink and morphs to the gradient on hover; danger is magenta
+  outline. Active nav is a solid white pill. Gradient accents on section rules, the
+  status bar, and the active-nav badge.
+- The **AiTM node-graph mark** (`assets/logo/aitm-mark.svg` / `app-icon`) stays the app
+  logo. The **Oak logo** (`oak-white.svg`) appears only as a "by Oak Security" lockup.
+- The report PDF/HTML is an Oak deliverable but states it is prepared *independently
+  using Oak tooling*, dependent on user input — do not claim Oak authored it.
 - Copy rule inherited from source: say **"protected assets"**, never "crown jewels".
 
 ## Domain conventions
@@ -131,12 +146,18 @@ Source: https://github.com/mhl42/branding. Vendor assets into `renderer/assets/`
   `id`, `title`, `required`, `defaultEnabled`, and `appliesWhen(classification)`.
   Required phases cannot be disabled. The workflow UI, auto-run, and report all derive
   from the project's enabled-phase set. See SPEC.md "Phase model".
-- **AI provider adapters** implement a common interface (`structuredCall`,
-  `models`, `validateKey`). `OpenAIResponsesAdapter` (the `/v1/responses` endpoint
-  with JSON-schema structured output) is the only adapter for v1. Do not hard-code
-  OpenAI elsewhere; go through the adapter.
-- All AI output is a **draft** until the user accepts/edits it. Preserve the
-  per-phase approval gates from the source app.
+- **AI provider adapters** (`src/main/ai/`) implement a common interface:
+  `structuredCall({ model, name, schema, system, user, key, signal, onDelta, effort })`
+  and `validateKey`. Both **OpenAI** (`/v1/responses`, JSON-schema strict) and
+  **Anthropic** (Messages API, forced tool call) ship, selected via `settings.provider`
+  through `getAdapter`. Both stream and call `onDelta` per chunk. `effort` maps to
+  GPT-5 `reasoning.effort` (ignored elsewhere). Don't hard-code a provider at call
+  sites; go through `orchestrate`.
+- **Models**: the report and other synthesis steps use the *fast* model; STRIDE and
+  coordination use the *deep* model. Both are per-provider, set in Settings.
+- All AI output is a **draft** until the user accepts/edits it; per-phase approval
+  gates remain. Re-running the full pipeline resets derived data first
+  (`store.resetAnalysis`); attack trees are one-per-threat and accumulative.
 
 ## When extending
 

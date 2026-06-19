@@ -1,6 +1,13 @@
 # Implementation Plan — AiTM Desktop Threat Modeler
 
-Target: Electron desktop port of `thread-model-dashboard`, MHL-branded, user-supplied
+> Status (historical plan): all milestones below are implemented. Since drafting,
+> branding pivoted from Mostly Harmless to **Oak Security** (M7), and several v1.1
+> "deferred" items shipped in v1: the **Anthropic** provider, **streaming + cancel**,
+> per-provider keys, the CI **release workflow + electron-updater**, and a full-pipeline
+> **reset** on re-run. GitHub/ZIP ingestion remains deferred. See AGENT.md/SPEC.md for
+> the current state; this file is kept as the original sequencing record.
+
+Target: Electron desktop port of `thread-model-dashboard`, Oak-branded, user-supplied
 key, generic + TRACE phases. Read SPEC.md and AGENT.md first.
 
 Sequencing principle: get a secure, runnable shell first, port the renderer behind an
