@@ -126,7 +126,8 @@ function renderStatusBar() {
   const busy = aiInFlight();
   let right;
   if (busy) {
-    right = `<span class="spinner"></span><span class="aistatus-text">${esc(streamLabel || "Working")}… ${streamTokens.toLocaleString()} tokens</span><button class="aistatus-cancel" data-action="cancel-ai">Cancel</button>`;
+    const activity = streamTokens > 0 ? `${streamTokens.toLocaleString()} tokens` : "thinking…";
+    right = `<span class="spinner"></span><span class="aistatus-text">${esc(streamLabel || "Working")}… ${activity}</span><button class="aistatus-cancel" data-action="cancel-ai">Cancel</button>`;
   } else if (streamError) {
     right = `<span class="aistatus-err">⚠ ${esc(streamError)}</span><button class="aistatus-cancel" data-action="dismiss-err">Dismiss</button>`;
   } else {

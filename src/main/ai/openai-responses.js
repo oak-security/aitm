@@ -15,25 +15,29 @@ const adapter = {
   label: "OpenAI",
   host: "api.openai.com",
 
-  async structuredCall({ model, name, schema, system, user, key, signal, onDelta }) {
+  async structuredCall({ model, name, schema, system, user, key, signal, onDelta, effort }) {
     if (!key) {
       throw appError("key_missing", "No API key configured. Add your provider API key in Settings.");
     }
+    const body = {
+      model,
+      stream: true,
+      input: [
+        { role: "system", content: [{ type: "input_text", text: system }] },
+        { role: "user", content: [{ type: "input_text", text: user }] }
+      ],
+      text: { format: { type: "json_schema", name, strict: true, schema } }
+    };
+    // Cap reasoning effort on GPT-5-family reasoning models so synthesis steps (the
+    // report especially) don't spend minutes thinking. Ignored by non-reasoning models.
+    if (effort && /^gpt-5/.test(model)) body.reasoning = { effort };
     let response;
     try {
       response = await fetch(ENDPOINT, {
         method: "POST",
         signal,
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          stream: true,
-          input: [
-            { role: "system", content: [{ type: "input_text", text: system }] },
-            { role: "user", content: [{ type: "input_text", text: user }] }
-          ],
-          text: { format: { type: "json_schema", name, strict: true, schema } }
-        })
+        body: JSON.stringify(body)
       });
     } catch (err) {
       if (err && err.code) throw err;

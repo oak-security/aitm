@@ -30,7 +30,7 @@ function sourcesContext(project) {
   }));
 }
 
-async function call({ model, name, label, schema, system, user }) {
+async function call({ model, name, label, schema, system, user, effort }) {
   const cfg = settings.get();
   const adapter = getAdapter(cfg.provider);
   const key = keystore.readKey(cfg.provider);
@@ -53,6 +53,7 @@ async function call({ model, name, label, schema, system, user }) {
       system,
       user: JSON.stringify(user, null, 2),
       key,
+      effort,
       signal: controller.signal,
       onDelta: (text) => {
         chars += text.length;
@@ -75,6 +76,7 @@ function classify(project) {
     model: "fast",
     name: "classification",
     label: "Classify",
+    effort: "low",
     schema: schemas.classificationSchema(),
     system: prompts.CLASSIFY,
     user: { scope: project.scope, notes: project.project.notes, sources: sourcesContext(project) }
@@ -86,6 +88,7 @@ function traceModel(project) {
     model: "fast",
     name: "trace_model",
     label: "TRACE model",
+    effort: "low",
     schema: schemas.traceModelSchema(),
     system: prompts.TRACE_MODEL,
     user: {
@@ -103,6 +106,7 @@ function stride(project) {
     model: "deep",
     name: "stride_threats",
     label: "STRIDE",
+    effort: "medium",
     schema: schemas.strideSchema(),
     system: prompts.STRIDE,
     user: { profile: project.classification.profile, traceModel: project.traceModel }
@@ -116,6 +120,7 @@ function attackTree(project, selection) {
     model: "fast",
     name: "attack_tree",
     label: "Attack tree",
+    effort: "low",
     schema: schemas.attackTreeSchema(),
     system: prompts.ATTACK_TREE,
     user: {
@@ -131,6 +136,7 @@ function coordination(project) {
     model: "deep",
     name: "coordination_analysis",
     label: "Coordination",
+    effort: "medium",
     schema: schemas.coordinationSchema(),
     system: prompts.COORDINATION,
     user: {
@@ -145,9 +151,12 @@ function coordination(project) {
 
 function report(project, enabledPhases) {
   return call({
-    model: "deep",
+    // The report synthesizes already-reviewed data, so it uses the fast model
+    // (e.g. Sonnet / gpt-5-mini) — far quicker than the deep model for assembly.
+    model: "fast",
     name: "threat_model_report",
     label: "Report",
+    effort: "low",
     schema: schemas.reportSchema(),
     system: prompts.REPORT,
     user: {
