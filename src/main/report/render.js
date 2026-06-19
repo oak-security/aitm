@@ -72,6 +72,17 @@ function bodyToHtml(markdown) {
       continue;
     }
 
+    if (t.startsWith(">")) {
+      closeList();
+      const quote = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) {
+        quote.push(lines[i].trim().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      out.push(`<blockquote>${inline(quote.join(" "))}</blockquote>`);
+      continue;
+    }
+
     if (t.startsWith("### ")) { closeList(); out.push(`<h3>${inline(t.slice(4))}</h3>`); i += 1; continue; }
     if (t.startsWith("## ")) { closeList(); out.push(`<h2>${inline(t.slice(3))}</h2>`); i += 1; continue; }
     if (t.startsWith("# ")) { closeList(); out.push(`<h1>${inline(t.slice(2))}</h1>`); i += 1; continue; }
@@ -106,6 +117,7 @@ function toHtml(markdown, title = "Threat Model Report") {
   th { background: rgba(14,17,22,0.05); }
   code { background: rgba(14,17,22,0.06); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
   li { margin: 4px 0; }
+  blockquote { margin: 1rem 0; padding: 6px 0 6px 14px; border-left: 3px solid; border-image: linear-gradient(180deg, ${GOLD}, ${MAGENTA}) 1; color: #555; font-style: italic; }
   a { color: ${INK}; text-decoration: underline; }
 </style></head><body>${body}</body></html>`;
 }

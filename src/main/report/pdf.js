@@ -16,7 +16,7 @@ function renderReportPdf({ title, markdown, generatedAt }) {
       size: "A4",
       margins: { top: 54, right: 54, bottom: 64, left: 54 },
       bufferPages: true,
-      info: { Title: title, Author: "Oak Security", Subject: "Oak Security threat model report" }
+      info: { Title: title, Author: "AiTM (Oak Security tooling)", Subject: "AI-assisted threat model report" }
     });
     const chunks = [];
     doc.on("data", (c) => chunks.push(c));
@@ -41,7 +41,7 @@ function drawCover(doc, title, generatedAt) {
   doc.moveTo(left + 200, 126).lineTo(left + 340, 126).lineWidth(7).strokeColor(MAGENTA).stroke();
   doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(10).text("AI THREAT MODELLER · DESIGN-LEVEL THREAT MODEL", left, 172, { width, characterSpacing: 0.8 });
   doc.fillColor(INK).font("Helvetica-Bold").fontSize(32).text(title, left, 208, { width, lineGap: 4 });
-  doc.fillColor(INK).font("Helvetica").fontSize(12).text("Prepared by Oak Security", left, 632, { width });
+  doc.fillColor(INK).font("Helvetica").fontSize(11).text("Prepared independently using Oak Security tooling. Content depends on user-provided input.", left, 626, { width, lineGap: 2 });
   const date = generatedAt ? new Date(generatedAt) : new Date();
   doc.fillColor(MUTED).fontSize(10).text(date.toISOString().slice(0, 10), left, 652, { width });
   doc.fillColor(MUTED).fontSize(9).text("AI-assisted design-level threat model. Expert review required before external use.", left, 720, { width });
@@ -78,6 +78,16 @@ function renderBody(doc, markdown) {
       doc.moveDown(0.25);
       continue;
     }
+    if (t.startsWith(">")) {
+      const quote = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) {
+        quote.push(lines[i].trim().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      i -= 1;
+      drawBlockquote(doc, plain(quote.join(" ")));
+      continue;
+    }
     if (t.startsWith("- ") || t.startsWith("* ")) {
       drawParagraph(doc, `•  ${plain(t.slice(2))}`, { indent: 12 });
       continue;
@@ -94,6 +104,20 @@ function drawSectionTitle(doc, title) {
   doc.moveTo(x, ly).lineTo(x + 130, ly).lineWidth(3).strokeColor(GOLD).stroke();
   doc.moveTo(x + 130, ly).lineTo(x + 300, ly).lineWidth(3).strokeColor(MAGENTA).stroke();
   doc.moveDown(1.2);
+}
+
+function drawBlockquote(doc, text) {
+  const indent = 16;
+  const width = contentWidth(doc) - indent;
+  const x = doc.page.margins.left + indent;
+  const height = doc.heightOfString(text, { width, lineGap: 2 });
+  ensureSpace(doc, height + 14);
+  const y = doc.y;
+  doc.save();
+  doc.rect(doc.page.margins.left, y - 1, 3, height + 2).fill(GOLD);
+  doc.restore();
+  doc.fillColor(MUTED).font("Helvetica-Oblique").fontSize(10).text(text, x, y, { width, lineGap: 2 });
+  doc.moveDown(0.6);
 }
 
 function drawParagraph(doc, text, options = {}) {
