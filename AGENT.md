@@ -47,7 +47,6 @@ There is intentionally **no heavy frontend build step**. Keep the renderer simpl
 AiTM/
   AGENT.md            # this file
   SPEC.md             # product + technical spec
-  PLAN.md             # implementation plan / milestones
   package.json
   electron-builder.js   # build/sign/notarize config + GitHub publish
   .github/workflows/release.yml
@@ -167,4 +166,4 @@ Tokens live in `renderer/styles.css` `:root`. Reference: https://github.com/oak-
 - New ingestion type → add a guarded module under `ingest/`, mirror existing caps.
 
 Keep changes idiomatic and minimal. Match surrounding style. Comment only where intent
-is non-obvious. See SPEC.md and PLAN.md for the full design and sequencing.
+is non-obvious. See SPEC.md for the full design.

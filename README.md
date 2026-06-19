@@ -70,7 +70,6 @@ Until then, distribute by handing out the installer; the updater fails quietly.
 
 - [AGENT.md](AGENT.md) — build/run conventions and the security/branding invariants.
 - [SPEC.md](SPEC.md) — product and technical specification.
-- [PLAN.md](PLAN.md) — implementation milestones.
 
 ## Data location
 
