@@ -317,6 +317,7 @@ function sidebar() {
       <li><button class="${state.view === "settings" ? "active" : ""}" data-action="view" data-view="settings"><span class="num">⚙</span> Settings</button></li>
     </ul>
     <div class="sidebar-footer">
+      <div class="oak-by"><span>by</span><img src="assets/logo/oak-white.svg" alt="Oak Security" /></div>
       <a data-action="reveal-folder">Reveal data folder</a>
     </div>
   </aside>`;

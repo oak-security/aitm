@@ -4,9 +4,10 @@
 // Handles headings, unordered lists, GFM tables, paragraphs, and inline bold/code/links.
 // The renderer is fed AI output that avoids fenced code blocks (per the report prompt).
 
-const INK = "#0E1116";
-const PAPER = "#FAF6EE";
-const GOLD = "#F5C518";
+const INK = "#000000";
+const PAPER = "#F7F6F5";
+const GOLD = "#FFC965";
+const MAGENTA = "#9C0069";
 
 function escapeHtml(value) {
   return String(value || "")
@@ -95,10 +96,10 @@ function toHtml(markdown, title = "Threat Model Report") {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>
   :root { color-scheme: light; }
-  body { font-family: Inter, system-ui, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 24px; line-height: 1.6; color: ${INK}; background: ${PAPER}; }
+  body { font-family: "BDO Grotesk", system-ui, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 24px; line-height: 1.6; color: ${INK}; background: ${PAPER}; }
   h1, h2, h3 { line-height: 1.25; }
   h1 { font-size: 2rem; }
-  h2 { font-size: 1.4rem; border-bottom: 3px solid ${GOLD}; padding-bottom: 6px; margin-top: 2rem; }
+  h2 { font-size: 1.4rem; border-bottom: 3px solid; border-image: linear-gradient(90deg, ${GOLD}, ${MAGENTA}) 1; padding-bottom: 6px; margin-top: 2rem; }
   h3 { font-size: 1.1rem; margin-top: 1.4rem; }
   table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.92rem; }
   th, td { border: 1px solid rgba(14,17,22,0.18); padding: 7px 10px; text-align: left; vertical-align: top; }

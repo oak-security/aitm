@@ -1,27 +1,30 @@
-/* AiTM — Mostly Harmless (MHL·42) design tokens.
-   Palette: Ink #0E1116, Paper #FAF6EE, Don't-Panic Gold #F5C518. Gold once per surface.
-   Typeface: Inter. */
+/* AiTM — Oak Security design tokens.
+   Palette: ink #000, workspace #F7F6F5, brand gold #FFC965 -> magenta #9C0069 gradient.
+   Typeface: BDO Grotesk. The AiTM mark stays the app logo; Oak logo appears as a
+   "by Oak Security" lockup. */
 
-@font-face { font-family: "Inter"; font-weight: 400; font-display: swap; src: url("assets/fonts/inter-400.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-weight: 500; font-display: swap; src: url("assets/fonts/inter-500.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-weight: 700; font-display: swap; src: url("assets/fonts/inter-700.woff2") format("woff2"); }
-@font-face { font-family: "Inter"; font-weight: 800; font-display: swap; src: url("assets/fonts/inter-800.woff2") format("woff2"); }
+@font-face { font-family: "BDO Grotesk"; font-weight: 400; font-display: swap; src: url("assets/fonts/BDOGrotesk-Regular.woff2") format("woff2"); }
+@font-face { font-family: "BDO Grotesk"; font-weight: 500; font-display: swap; src: url("assets/fonts/BDOGrotesk-Medium.woff2") format("woff2"); }
+@font-face { font-family: "BDO Grotesk"; font-weight: 700; font-display: swap; src: url("assets/fonts/BDOGrotesk-Bold.woff2") format("woff2"); }
+@font-face { font-family: "BDO Grotesk"; font-weight: 800; font-display: swap; src: url("assets/fonts/BDOGrotesk-Black.woff2") format("woff2"); }
 
 :root {
-  --ink: #0E1116;
-  --paper: #FAF6EE;
-  --gold: #F5C518;
-  --ink-2: #1a1f26;
-  --line: rgba(14, 17, 22, 0.14);
-  --line-strong: rgba(14, 17, 22, 0.28);
-  --muted: #5b6066;
-  --muted-on-ink: #9aa0a8;
-  --paper-on-ink: #FAF6EE;
+  --ink: #000000;
+  --paper: #F7F6F5;
+  --gold: #FFC965;
+  --magenta: #9C0069;
+  --gradient: linear-gradient(90deg, #FFC965 0%, #9C0069 100%);
+  --ink-2: #161616;
+  --line: #d9d9d9;
+  --line-strong: rgba(0, 0, 0, 0.28);
+  --muted: #6f747a;
+  --muted-on-ink: #b6babf;
+  --paper-on-ink: #ffffff;
   --danger: #b3261e;
   --ok: #1b7a45;
-  --radius: 10px;
+  --radius: 8px;
   --radius-sm: 7px;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family: "BDO Grotesk", system-ui, -apple-system, sans-serif;
   color-scheme: light;
 }
 
@@ -51,7 +54,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .nav button { width: 100%; text-align: left; display: flex; align-items: center; gap: 10px; background: transparent; color: var(--paper-on-ink); border: 0; border-radius: var(--radius-sm); padding: 9px 12px; cursor: pointer; position: relative; }
 .nav button:hover { background: rgba(255,255,255,0.07); }
 .nav button.active { background: rgba(255,255,255,0.10); }
-.nav button.active::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px; background: var(--gold); border-radius: 2px; }
+.nav button.active::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px; background: var(--gradient); border-radius: 2px; }
 .nav .num { font-size: 0.7rem; color: var(--muted-on-ink); min-width: 16px; }
 .nav .badge { margin-left: auto; font-size: 0.68rem; background: rgba(255,255,255,0.14); border-radius: 999px; padding: 1px 7px; }
 .nav button.locked { opacity: 0.45; }
@@ -62,13 +65,16 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.on { background: var(--gold); } .dot.off { background: var(--danger); }
 .sidebar-footer a { color: var(--paper-on-ink); cursor: pointer; text-decoration: underline; }
+.oak-by { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.oak-by span { color: var(--muted-on-ink); }
+.oak-by img { height: 22px; width: auto; display: block; }
 
 /* ---------- main content ---------- */
 .view { padding: 28px 34px 60px; max-width: 1040px; }
 .view h1 { font-size: 1.7rem; font-weight: 800; margin: 0 0 4px; }
 .view .eyebrow { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
 .view .lede { color: var(--muted); margin: 6px 0 22px; max-width: 70ch; line-height: 1.55; }
-.view h2 { font-size: 1.1rem; margin: 26px 0 10px; }
+.view h2 { font-size: 1.1rem; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 3px solid; border-image: var(--gradient) 1; }
 
 .card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
 .card.flush { padding: 0; overflow: hidden; }
@@ -147,7 +153,7 @@ table.editor td textarea { min-height: 68px; width: 100%; line-height: 1.45; }
 .toast.err { background: var(--danger); }
 
 /* persistent full-width AI status bar at the bottom */
-.aistatus { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 46px; padding: 0 18px; background: var(--ink); color: var(--paper-on-ink); border-top: 2px solid var(--gold); font-size: 0.85rem; }
+.aistatus { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 46px; padding: 0 18px; background: var(--ink); color: var(--paper-on-ink); border-top: 2px solid; border-image: var(--gradient) 1; font-size: 0.85rem; }
 .aistatus-left, .aistatus-right { display: flex; align-items: center; gap: 14px; min-height: 22px; }
 .aistatus-tag { font-weight: 800; letter-spacing: 0.08em; font-size: 0.7rem; background: var(--gold); color: var(--ink); border-radius: 5px; padding: 2px 8px; }
 .aistatus-provider { font-weight: 600; }

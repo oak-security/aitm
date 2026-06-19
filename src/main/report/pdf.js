@@ -2,12 +2,13 @@
 
 const PDFDocument = require("pdfkit");
 
-// MHL palette. PDF body uses Helvetica (built into pdfkit); embedding Inter as a TTF is
-// a later refinement. The single gold accent appears once per section, per brand rules.
-const INK = "#0E1116";
-const PAPER = "#FAF6EE";
-const GOLD = "#F5C518";
-const MUTED = "#5b6066";
+// Oak Security palette. PDF body uses Helvetica (built into pdfkit); embedding BDO
+// Grotesk as a TTF is a later refinement. Accent is the gold->magenta brand rule.
+const INK = "#000000";
+const PAPER = "#F7F6F5";
+const GOLD = "#FFC965";
+const MAGENTA = "#9C0069";
+const MUTED = "#6f747a";
 
 function renderReportPdf({ title, markdown, generatedAt }) {
   return new Promise((resolve, reject) => {
@@ -15,7 +16,7 @@ function renderReportPdf({ title, markdown, generatedAt }) {
       size: "A4",
       margins: { top: 54, right: 54, bottom: 64, left: 54 },
       bufferPages: true,
-      info: { Title: title, Author: "AiTM", Subject: "AiTM threat model report" }
+      info: { Title: title, Author: "Oak Security", Subject: "Oak Security threat model report" }
     });
     const chunks = [];
     doc.on("data", (c) => chunks.push(c));
@@ -35,11 +36,12 @@ function drawCover(doc, title, generatedAt) {
   const width = doc.page.width - left - right;
   doc.rect(0, 0, doc.page.width, doc.page.height).fill(PAPER);
   doc.fillColor(INK).font("Helvetica-Bold").fontSize(40).text("AiTM", left, 70, { width });
-  // single gold accent rule
-  doc.moveTo(left, 126).lineTo(left + 250, 126).lineWidth(7).strokeColor(GOLD).stroke();
+  // gold -> magenta brand rule
+  doc.moveTo(left, 126).lineTo(left + 200, 126).lineWidth(7).strokeColor(GOLD).stroke();
+  doc.moveTo(left + 200, 126).lineTo(left + 340, 126).lineWidth(7).strokeColor(MAGENTA).stroke();
   doc.fillColor(MUTED).font("Helvetica-Bold").fontSize(10).text("AI THREAT MODELLER · DESIGN-LEVEL THREAT MODEL", left, 172, { width, characterSpacing: 0.8 });
   doc.fillColor(INK).font("Helvetica-Bold").fontSize(32).text(title, left, 208, { width, lineGap: 4 });
-  doc.fillColor(INK).font("Helvetica").fontSize(12).text("Generated with AiTM — AI Threat Modeller", left, 632, { width });
+  doc.fillColor(INK).font("Helvetica").fontSize(12).text("Prepared by Oak Security", left, 632, { width });
   const date = generatedAt ? new Date(generatedAt) : new Date();
   doc.fillColor(MUTED).fontSize(10).text(date.toISOString().slice(0, 10), left, 652, { width });
   doc.fillColor(MUTED).fontSize(9).text("AI-assisted design-level threat model. Expert review required before external use.", left, 720, { width });
@@ -88,7 +90,9 @@ function drawSectionTitle(doc, title) {
   ensureSpace(doc, 72);
   doc.fillColor(INK).font("Helvetica-Bold").fontSize(22).text(title, { lineGap: 3 });
   const x = doc.page.margins.left;
-  doc.moveTo(x, doc.y + 8).lineTo(x + 220, doc.y + 8).lineWidth(3).strokeColor(GOLD).stroke();
+  const ly = doc.y + 8;
+  doc.moveTo(x, ly).lineTo(x + 130, ly).lineWidth(3).strokeColor(GOLD).stroke();
+  doc.moveTo(x + 130, ly).lineTo(x + 300, ly).lineWidth(3).strokeColor(MAGENTA).stroke();
   doc.moveDown(1.2);
 }
 
