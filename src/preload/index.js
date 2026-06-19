@@ -15,7 +15,8 @@ contextBridge.exposeInMainWorld("api", {
     setActive: (id) => invoke("projects.setActive", { id }),
     getActive: () => invoke("projects.getActive"),
     export: (id) => invoke("projects.export", { id }),
-    import: (json) => invoke("projects.import", { json })
+    import: (json) => invoke("projects.import", { json }),
+    reset: (id) => invoke("projects.reset", { id })
   },
   keystore: {
     status: () => invoke("keystore.status"),

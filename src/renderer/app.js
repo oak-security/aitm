@@ -263,6 +263,7 @@ async function refreshAll() {
 async function openProject(id, doRender = true) {
   await api.projects.setActive(id);
   state.project = await api.projects.get(id);
+  state.treeSel = []; // selection is per project
   if (!PHASE_VIEW[state.view] && state.view !== "settings" && state.view !== "phases") state.view = "overview";
   if (PHASE_VIEW[state.view] && !isEnabled(state.view)) state.view = "overview";
   if (doRender) render();
@@ -551,15 +552,27 @@ function strideCard(t, i) {
 function treesView() {
   const p = state.project;
   const sel = new Set(state.treeSel);
-  const threatOptions = p.strideThreats.map((t) => `<label class="row" style="gap:6px"><input type="checkbox" data-tree-threat="${t.id}" ${sel.has(t.id) ? "checked" : ""}> ${esc(t.title || t.surface)}</label>`).join("");
-  const trees = p.attackTrees.map((tree, ti) => `<div class="card">
-    <div class="spread"><strong>${esc(tree.name)}</strong>
-      <button class="row-remove" data-action="remove-tree" data-index="${ti}">✕</button></div>
-    <div class="tree">${renderTree(tree.nodes || [])}</div></div>`).join("");
+  const hasTree = (id) => (p.attackTrees || []).some((t) => t.threatId === id);
+  const threatOptions = p.strideThreats.map((t) => {
+    const title = esc(t.title || t.surface);
+    if (hasTree(t.id)) {
+      return `<label class="row tree-opt generated" style="gap:6px" title="Already generated — delete its tree to regenerate"><input type="checkbox" checked disabled> <span>${title}</span><span class="tag">tree ✓</span></label>`;
+    }
+    return `<label class="row tree-opt" style="gap:6px"><input type="checkbox" data-tree-threat="${t.id}" ${sel.has(t.id) ? "checked" : ""}> ${title}</label>`;
+  }).join("");
+  const trees = p.attackTrees.map((tree, ti) => {
+    const threat = p.strideThreats.find((x) => x.id === tree.threatId);
+    return `<div class="card">
+      <div class="spread"><strong>${esc(tree.name)}</strong>
+        <button class="row-remove" data-action="remove-tree" data-index="${ti}">✕</button></div>
+      ${threat ? `<div class="hint" style="margin-bottom:6px">for: ${esc(threat.title || threat.surface)}</div>` : ""}
+      <div class="tree">${renderTree(tree.nodes || [])}</div></div>`;
+  }).join("");
   return `<div class="view">
-    ${viewHeader("TRACE · Phase 4", "Build Attack Trees", "Decompose top threats into attack paths. Optional phase.")}
+    ${viewHeader("TRACE · Phase 4", "Build Attack Trees", "Decompose threats into attack paths. Optional phase.")}
     ${aiGateNotice()}
-    <div class="card"><div class="spread"><strong>Build trees for the selected threats</strong>${genButton("ai-attack-tree", "Build attack trees")}</div>
+    <div class="card"><div class="spread"><strong>Build trees for the ticked threats</strong>${genButton("ai-attack-tree", "Build attack trees")}</div>
+      <p class="hint" style="margin:6px 0 0">Threats that already have a tree are ticked and greyed, and are skipped. Tick new threats and generate to add their trees.</p>
       <div style="margin-top:10px;display:grid;gap:4px">${threatOptions || '<span class="hint">Generate STRIDE threats first.</span>'}</div></div>
     ${trees}
     ${approveBar("attack-trees")}
@@ -820,6 +833,7 @@ async function doNewProject() {
   });
   if (!name) return; // cancelled or empty
   state.project = await api.projects.create({ name });
+  state.treeSel = [];
   state.projects = await api.projects.list();
   state.view = "scope";
   render();
@@ -835,6 +849,7 @@ async function doImport() {
     const text = await file.text();
     try {
       state.project = await api.projects.import(text);
+      state.treeSel = [];
       state.projects = await api.projects.list();
       state.view = "overview";
       render();
@@ -912,15 +927,14 @@ async function doAutoRun() {
   state.busy["auto-run"] = true;
   const step = (msg) => { state.autoStatus = msg; render(); };
   try {
+    step("Clearing previous results…");    state.project = await api.projects.reset(pid()); state.treeSel = [];
     step("Classifying the system…");      state.project = await api.ai.classify(pid());
     step("Drafting the TRACE model…");     state.project = await api.ai.traceModel(pid());
     step("Generating STRIDE threats…");    state.project = await api.ai.stride(pid());
     if (isEnabled("attack-trees") && state.project.strideThreats.length) {
       const top = topThreats(state.project.strideThreats, 3);
-      for (let i = 0; i < top.length; i += 1) {
-        step(`Building attack tree ${i + 1} of ${top.length}…`);
-        state.project = await api.ai.attackTree(pid(), { threatIds: [top[i].id] });
-      }
+      step(`Building attack trees for the top ${top.length} threats…`);
+      state.project = await api.ai.attackTree(pid(), { threatIds: top.map((t) => t.id) });
     }
     if (isEnabled("coordination")) { step("Analyzing collusion & coordination…"); state.project = await api.ai.coordination(pid()); }
     if (isEnabled("report")) { step("Writing the report…"); state.project = await api.ai.report(pid()); }
@@ -945,12 +959,15 @@ async function doExportMarkdown() {
 
 async function doBuildTree() {
   if (!keyConfigured()) { toast("Add your API key in Settings first.", true); return; }
-  const selected = state.treeSel.slice(); // persisted selection; not cleared by building
+  const selected = state.treeSel.slice();
+  if (!selected.length) { toast("Tick at least one threat to generate trees for.", true); return; }
   setBusy("ai-attack-tree", true); render();
   try {
     state.project = await api.ai.attackTree(pid(), { threatIds: selected });
     markVerified();
-    toast(selected.length > 1 ? "Attack trees built." : "Attack tree built.");
+    // drop now-generated threats from the pending selection (they show as greyed)
+    state.treeSel = state.treeSel.filter((id) => !(state.project.attackTrees || []).some((t) => t.threatId === id));
+    toast("Attack trees generated.");
   } finally { setBusy("ai-attack-tree", false); render(); }
 }
 

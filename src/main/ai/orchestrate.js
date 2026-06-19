@@ -113,9 +113,9 @@ function stride(project) {
   });
 }
 
-function attackTree(project, selection) {
-  const ids = new Set((selection && selection.threatIds) || []);
-  const selectedThreats = (project.strideThreats || []).filter((t) => ids.has(t.id));
+// Build a tree for a single threat (one tree per threat so trees map to threats).
+function attackTree(project, threatId) {
+  const threat = (project.strideThreats || []).find((t) => t.id === threatId) || null;
   return call({
     model: "fast",
     name: "attack_tree",
@@ -124,7 +124,7 @@ function attackTree(project, selection) {
     schema: schemas.attackTreeSchema(),
     system: prompts.ATTACK_TREE,
     user: {
-      selectedThreats: selectedThreats.length ? selectedThreats : project.strideThreats,
+      threat,
       components: project.traceModel.components,
       protectedAssets: project.traceModel.protectedAssets
     }

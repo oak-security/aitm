@@ -44,6 +44,7 @@ function registerIpc() {
   handle("projects.getActive", () => ({ id: store.getActive() }));
   handle("projects.export", ({ id }) => store.exportProject(id));
   handle("projects.import", ({ json }) => store.importProject(json));
+  handle("projects.reset", ({ id }) => store.resetAnalysis(id));
 
   // ---- keystore (per provider) ----
   handle("keystore.status", () => keystore.status());
@@ -107,11 +108,18 @@ function registerIpc() {
   });
 
   handle("ai.attackTree", async ({ projectId, selection }) => {
-    const project = requireProject(projectId);
+    let project = requireProject(projectId);
     if (!phases.isEnabled(project, "attack-trees")) throw appError("phase_disabled", "The Attack Trees phase is disabled for this project.");
-    const draft = await orchestrate.attackTree(project, selection || {});
-    project.attackTrees = [...(project.attackTrees || []), { id: uuid(), ...draft }];
-    return store.persist(project);
+    // Accumulative: build one tree per selected threat that doesn't already have one.
+    const existing = new Set((project.attackTrees || []).map((t) => t.threatId).filter(Boolean));
+    const ids = ((selection && selection.threatIds) || []).filter((id) => id && !existing.has(id));
+    if (!ids.length) throw appError("no_threats", "Select at least one threat that does not already have an attack tree.");
+    for (const threatId of ids) {
+      const draft = await orchestrate.attackTree(project, threatId);
+      project.attackTrees.push({ id: uuid(), threatId, ...draft });
+      project = store.persist(project); // persist incrementally so a mid-run cancel keeps finished trees
+    }
+    return project;
   });
 
   handle("ai.coordination", async ({ projectId }) => {

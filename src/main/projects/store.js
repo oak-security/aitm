@@ -109,6 +109,22 @@ function getActive() {
   return null;
 }
 
+// Clear all AI-derived data (classification, model, STRIDE, trees, coordination,
+// report, approvals) so a re-run starts clean. Preserves user inputs: name, notes,
+// scope, ingested sources, and the enabled-phase set.
+function resetAnalysis(id) {
+  const cur = readProject(id);
+  const fresh = createProject(cur.project.name);
+  fresh.project.id = cur.project.id;
+  fresh.project.createdAt = cur.project.createdAt;
+  fresh.project.notes = cur.project.notes;
+  fresh.project.status = cur.project.status;
+  fresh.scope = cur.scope;
+  fresh.sources = cur.sources;
+  fresh.phasesEnabled = cur.phasesEnabled;
+  return persist(fresh);
+}
+
 function exportProject(id) {
   return JSON.stringify(readProject(id), null, 2);
 }
@@ -135,5 +151,5 @@ function importProject(json) {
 
 module.exports = {
   list, get, create, update, remove, setActive, getActive,
-  exportProject, importProject, persist, readProject
+  exportProject, importProject, persist, readProject, resetAnalysis
 };
