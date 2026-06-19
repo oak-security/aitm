@@ -14,7 +14,9 @@
 //
 // Release:  APPLE_TEAM_ID=XXXXXXXXXX APPLE_ID=you@... APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx npm run dist:mac
 
-const notarize = process.env.APPLE_TEAM_ID ? { teamId: process.env.APPLE_TEAM_ID } : false;
+// Enable notarization when signing creds are present; team id / credentials are read
+// from the APPLE_TEAM_ID / APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD env vars.
+const notarize = process.env.APPLE_TEAM_ID ? true : false;
 
 module.exports = {
   appId: "io.oaksecurity.aitm",

@@ -5,6 +5,7 @@
   "private": true,
   "description": "AiTM — AI Threat Modeller. Local-first desktop threat modeling using the TRACE framework.",
   "license": "UNLICENSED",
+  "author": { "name": "Oak Security", "email": "info@oaksecurity.io" },
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
