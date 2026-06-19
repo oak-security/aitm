@@ -279,7 +279,11 @@ function aiInFlight() {
 }
 
 function render() {
-  app.innerHTML = `${sidebar()}<main class="main">${state.project ? viewHtml() : emptyState()}</main>`;
+  let main;
+  if (state.view === "settings") main = settingsView(); // global; reachable without a project
+  else if (state.project) main = viewHtml();
+  else main = emptyState();
+  app.innerHTML = `${sidebar()}<main class="main">${main}</main>`;
   renderStatusBar();
 }
 
@@ -296,7 +300,7 @@ function sidebar() {
 
   return `
   <aside class="sidebar">
-    <div class="brand">
+    <div class="brand" data-action="view" data-view="overview" title="Home">
       <img class="brand-mark" src="assets/logo/aitm-mark.svg" alt="" />
       <div class="brand-name">AiTM<span class="brand-sub">AI Threat Modeller</span></div>
     </div>
@@ -744,7 +748,12 @@ async function onClick(e) {
 
   try {
     switch (action) {
-      case "view": state.view = d.view; render(); break;
+      case "view":
+        // Settings/Phases act as toggles: clicking the active one returns to Overview
+        // (the start screen when no project is open), so you're never trapped.
+        state.view = (d.view === state.view && (d.view === "settings" || d.view === "phases")) ? "overview" : d.view;
+        render();
+        break;
       case "select-project": break; // handled by change below
       case "new-project": await doNewProject(); break;
       case "import-project": await doImport(); break;
