@@ -31,9 +31,6 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    # On manual dispatch, optionally restrict to a single OS (e.g. for a quick
-    # Windows-only build that publishes into the existing release).
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.os == 'all' || inputs.os == matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +42,9 @@ jobs:
       - run: npm ci
 
       - name: Build and publish
+        # Skip on a manual dispatch that targets a different OS (matrix is available in
+        # step-level if, unlike job-level). Tag pushes always build all three.
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.os == 'all' || inputs.os == matrix.os }}
         # Force bash everywhere (incl. Windows via Git Bash); under PowerShell the
         # electron-builder invocation no-ops without building.
         shell: bash
