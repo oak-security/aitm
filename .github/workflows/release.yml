@@ -29,7 +29,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        # Pin Windows to 2022: electron-builder 25 silently fails on the new
+        # windows-latest (Server 2025 / VS2026) image.
+        os: [macos-latest, windows-2022, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -45,10 +47,11 @@ jobs:
         # Skip on a manual dispatch that targets a different OS (matrix is available in
         # step-level if, unlike job-level). Tag pushes always build all three.
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.os == 'all' || inputs.os == matrix.os }}
-        # Run via an npm script (reliable local-bin resolution). `npx electron-builder`
-        # silently no-ops on the Windows runner image, so avoid it.
         shell: bash
-        run: npm run publish:ci
+        run: |
+          set -x
+          node --version
+          node node_modules/electron-builder/cli.js --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS signing + notarization ONLY on the mac runner. Passing CSC_LINK (a
