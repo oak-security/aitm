@@ -14,7 +14,12 @@ name: release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "Which runner to build (all | macos-latest | windows-latest | ubuntu-latest)"
+        default: "all"
+        type: string
 
 permissions:
   contents: write
@@ -26,6 +31,9 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    # On manual dispatch, optionally restrict to a single OS (e.g. for a quick
+    # Windows-only build that publishes into the existing release).
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.os == 'all' || inputs.os == matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +45,10 @@ jobs:
       - run: npm ci
 
       - name: Build and publish
-        run: npx electron-builder --publish always
+        # Force bash everywhere (incl. Windows via Git Bash); under PowerShell the
+        # electron-builder invocation no-ops without building.
+        shell: bash
+        run: npx --no-install electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS signing + notarization ONLY on the mac runner. Passing CSC_LINK (a
