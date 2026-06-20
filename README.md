@@ -10,6 +10,60 @@ Local-first desktop application for AI-assisted threat modeling using the
   Collusion/Coordination → Report. Optional phases toggle per project.
 - **Generic**: domain profiles span generic IT, web, cloud, mobile, ICS/OT, and Web3.
 
+## Download & install
+
+Get the latest installers from the **[Releases page](https://github.com/oak-security/aitm/releases/latest)**.
+(This is a private repository — sign in to GitHub with an account in the `oak-security`
+org to see them.)
+
+You also need your **own AI API key** (OpenAI or Anthropic) — see "First run" below.
+
+### macOS (Apple Silicon)
+
+1. Download **`AiTM-<version>-arm64.dmg`**.
+2. Open the `.dmg` and drag **AiTM** into **Applications**.
+3. Launch it from Applications.
+
+The macOS build is signed and notarized, so it opens with no Gatekeeper warning.
+Note: **Apple Silicon (M-series) only** — Intel Macs aren't supported yet.
+
+### Windows
+
+1. Download **`AiTM-Setup-<version>.exe`** and run it.
+2. The app isn't code-signed yet, so SmartScreen shows **"Windows protected your PC"**.
+   Click **More info → Run anyway**.
+3. Complete the installer and launch AiTM.
+
+### Linux
+
+- **AppImage** (any distro):
+  ```sh
+  chmod +x AiTM-<version>.AppImage
+  ./AiTM-<version>.AppImage
+  ```
+- **Debian / Ubuntu** (`.deb`):
+  ```sh
+  sudo apt install ./aitm_<version>_amd64.deb
+  ```
+
+(Both are x86-64 / amd64.)
+
+### First run
+
+1. Open **Settings** (sidebar, bottom-left).
+2. Choose your **provider** (OpenAI or Anthropic), paste your **API key**, and click **Test key**.
+3. Click **New** to create a project, add sources, and start modeling — or use
+   **Run full pipeline** on the Overview screen for an end-to-end first pass.
+
+Your key is stored encrypted on your device (OS keychain) and is only ever sent to the
+provider you select. Projects and settings live in your app-data folder ("Reveal data
+folder" in the sidebar).
+
+### Updates
+
+Auto-update is not active yet, so check the [Releases page](https://github.com/oak-security/aitm/releases/latest)
+for new versions and install over the top.
+
 ## Develop
 
 ```sh
