@@ -1,4 +1,6 @@
-# AiTM — AI Threat Modeller
+<p align="center">
+  <img src="docs/banner.png" alt="AiTM — AI Threat Modeller" width="820">
+</p>
 
 Local-first desktop application for AI-assisted threat modeling using the
 [TRACE](https://github.com/oak-security/TRACE) framework. Built with Electron.
