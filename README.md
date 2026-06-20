@@ -64,6 +64,69 @@ folder" in the sidebar).
 Auto-update is not active yet, so check the [Releases page](https://github.com/oak-security/aitm/releases/latest)
 for new versions and install over the top.
 
+## Usage guide
+
+AiTM implements the [TRACE](https://github.com/oak-security/TRACE) threat-modeling
+methodology: ingest what describes the system, build a structured model of it, enumerate
+threats with STRIDE, optionally decompose the important ones into attack trees and check
+for actor collusion, then produce a report. Every AI output is an **editable draft** — you
+review and correct it; the app is an assistant, not an oracle.
+
+### 1. Ingest your sources
+
+On the **Sources & Scope** page (TRACE phases 0–1):
+
+- **Add folder** — a local source/project directory (code, configs, docs). The walk is
+  confined to the folder, honors `.gitignore`, and skips binaries/dependency dirs.
+- **Add file** — individual files: specification / architecture / whitepaper documents
+  (`.md`, `.txt`, `.pdf`, `.docx`) and/or source files.
+
+Add **as many sources as you like** — they're complementary. A typical setup is a
+**spec or whitepaper plus the code repo**. Everything is local; nothing is uploaded
+until you run an AI step. Then (optionally) fill in **Scope** — boundaries, in/out of
+scope, assumptions — and click **Ingest** to classify the system and open the Overview.
+
+### 2. Tip: a good spec beats raw code
+
+TRACE is a **design-level** methodology, so the model reasons best from material that
+describes the system's **architecture, components, trust boundaries, assets, and
+actors** — i.e. a clear **specification, whitepaper, or design doc**. Pointing it only at
+a large code repository tends to produce noisier, lower-altitude results, because the
+design intent has to be inferred from implementation detail. **Best results: feed it a
+solid spec/whitepaper, and add the code as a supporting source** for grounding.
+
+### 3. Two ways to run it
+
+- **Full pipeline ("Run full pipeline" on the Overview)** — the "I'm feeling lucky" mode.
+  Runs every enabled phase end to end (classify → TRACE model → STRIDE → top-3 attack
+  trees → coordination → report), auto-approving each step. Great for a fast first pass
+  or to scope effort. It **resets prior AI results** first, so it's a clean re-run.
+- **Deliberate, phase by phase (recommended for real work)** — generate one phase at a
+  time, **review and edit** the tables (assets, actors, invariants, threats, …), mark the
+  phase reviewed, then move on. Correcting the TRACE model *before* STRIDE, and STRIDE
+  *before* attack trees, materially improves the result. This is the approval-gate
+  workflow; the full pipeline just auto-approves those same gates.
+
+A good rhythm: run the full pipeline once for a draft, then walk the phases to refine.
+
+### 4. The TRACE phases
+
+Each phase is in the left nav; **optional ones can be toggled per project** under
+**Phases** (disabled phases drop out of the workflow, the pipeline, and the report).
+
+| Phase | What it does |
+| --- | --- |
+| **0–1 Sources & Scope** | Ingest local sources; record assessment boundaries. |
+| **2 TRACE Model** | Structured model: protected assets, threat actors, privileged roles, invariants, components, trust boundaries, value/data flows. |
+| **3 STRIDE** | Per-surface threats (Spoofing/Tampering/Repudiation/Info-disclosure/DoS/Elevation) with likelihood, impact, and risk. |
+| **4 Attack Trees** *(optional)* | Decompose chosen threats into attack paths — one tree per threat, accumulative. |
+| **5 Collusion & Coordination** *(optional)* | Where distinct actor groups (validators, multisig signers, committees, DAOs…) could coordinate to cause harm. Defaults on only when the classification flags it. |
+| **6 Report** | Assembles the reviewed model into a design-level report; export to **PDF** or **Markdown**. |
+
+The report is an **AI-assisted, design-level** document — it is not a code audit,
+penetration test, or certification, and should be reviewed by an expert before external
+use.
+
 ## Develop
 
 ```sh
