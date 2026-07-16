@@ -131,6 +131,15 @@ function coordinationSchema() {
   };
 }
 
+function scopeFilterSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["include", "note"],
+    properties: { include: strArray, note: str }
+  };
+}
+
 function reportSchema() {
   return {
     type: "object",
@@ -148,5 +157,6 @@ module.exports = {
   strideSchema,
   attackTreeSchema,
   coordinationSchema,
+  scopeFilterSchema,
   reportSchema
 };

@@ -149,6 +149,20 @@ function coordination(project) {
   });
 }
 
+// Reduce an ingestion candidate set to a scope hint (e.g. "only the docs directory").
+// Returns { include: [relative paths], note } — an empty include means no reduction.
+function scopeFilter({ hint, dirs, files }) {
+  return call({
+    model: "fast",
+    name: "scope_filter",
+    label: "Scope filter",
+    effort: "low",
+    schema: schemas.scopeFilterSchema(),
+    system: prompts.SCOPE_FILTER,
+    user: { hint, directories: dirs, files }
+  });
+}
+
 function report(project, enabledPhases) {
   return call({
     // The report synthesizes already-reviewed data, so it uses the fast model
@@ -173,4 +187,4 @@ function report(project, enabledPhases) {
   });
 }
 
-module.exports = { classify, traceModel, stride, attackTree, coordination, report, cancelAll };
+module.exports = { classify, traceModel, stride, attackTree, coordination, scopeFilter, report, cancelAll };

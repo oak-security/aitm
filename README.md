@@ -129,6 +129,25 @@ The report is an **AI-assisted, design-level** document — it is not a code aud
 penetration test, or certification, and should be reviewed by an expert before external
 use.
 
+## Terminal UI (aitm-tui)
+
+A keyboard-driven TUI frontend that runs the same pipeline against the same project
+store — no Electron window needed. It adds two things the desktop app doesn't have yet:
+git/GitHub URL ingestion (shallow clone) and an AI-applied scope hint that reduces the
+ingested file set ("only the docs directory").
+
+```sh
+npm install && (cd tui && npm install)   # once
+npm run tui -- [source ...]              # or: node tui/src/aitm-tui.js [source ...]
+
+aitm-tui                                 # current directory
+aitm-tui docs/arch.md spec.pdf           # specific files
+aitm-tui https://github.com/owner/repo   # shallow-cloned, clone removed after
+```
+
+API keys come from `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the TUI's own key file;
+the desktop app's OS-keychain vault is Electron-only. See `tui/README.md`.
+
 ## Develop
 
 ```sh

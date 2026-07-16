@@ -72,6 +72,14 @@ AiTM/
       assets/         # AiTM mark + app icon, oak-white/black.svg, BDO Grotesk (vendored)
   test/
     core.test.js      # schema migration, phase seeding, render, ingestion guards
+    tui.test.js       # TUI shim, target resolution, pipeline helpers
+  tui/                # aitm-tui: Ink/React terminal frontend (own package.json, ESM,
+                      #   no build step). Loads src/main/* outside Electron via a
+                      #   Module._load shim (tui/src/shim.js) that fakes `electron`
+                      #   (app.getPath -> shared userData) and swaps keystore.js
+                      #   (env vars / mode-600 file) and stream.js (EventEmitter).
+                      #   Adds git-URL clone ingestion and an AI scope filter
+                      #   (orchestrate.scopeFilter). See tui/README.md.
 ```
 
 ## Build / run / test

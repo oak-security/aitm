@@ -43,6 +43,13 @@ const COORDINATION = [
   "Only include realistic coordination scenarios grounded in the supplied model."
 ].join("\n");
 
+const SCOPE_FILTER = [
+  "You reduce an ingestion file set to match the user's scope hint before threat modeling.",
+  "Given a directory list, a sample of file paths, and the hint, return the relative paths (directories or files) that are in scope.",
+  "Return paths exactly as supplied. Prefer whole directories over individual files when a directory matches the hint.",
+  "Return an empty include list when the hint does not reduce scope, so everything stays in scope."
+].join("\n");
+
 const REPORT = [
   "Write a design-level threat model report in Markdown using clear headings, tables, and bullet lists.",
   "The report must not claim to be a code audit, penetration test, certification, or warranty.",
@@ -54,4 +61,4 @@ const REPORT = [
   "The Legal notice must state the report is an AI-assisted design-level draft requiring expert review, with no warranty of completeness or accuracy."
 ].join("\n");
 
-module.exports = { CLASSIFY, TRACE_MODEL, STRIDE, ATTACK_TREE, COORDINATION, REPORT };
+module.exports = { CLASSIFY, TRACE_MODEL, STRIDE, ATTACK_TREE, COORDINATION, SCOPE_FILTER, REPORT };
