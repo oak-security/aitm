@@ -152,12 +152,14 @@ the desktop app's OS-keychain vault is Electron-only. See `tui/README.md`.
 
 A multi-tenant web frontend (Hetzner-deployable) that serves the same renderer in the
 browser and runs the pipeline server-side, one isolated data dir per user. GitHub OAuth
-gated on Oak Security org membership; localhost auth bypass for testing.
+gated on Oak Security org membership; localhost auth bypass for testing. Unlike the
+desktop app, the hosted build is a managed service: OpenAI-only with no Settings screen,
+using one shared `OPENAI_API_KEY` from the environment for every user.
 
 ```sh
 npm install
-npm run web:dev                          # AITM_AUTH_BYPASS=1, http://localhost:8790
-# production: set GITHUB_CLIENT_ID/SECRET, AITM_WEB_BASE_URL, then `npm run web`
+OPENAI_API_KEY=sk-... npm run web:dev    # AITM_AUTH_BYPASS=1, http://localhost:8790
+# production: set GITHUB_CLIENT_ID/SECRET, AITM_WEB_BASE_URL, OPENAI_API_KEY, then `npm run web`
 ```
 
 Deploy artifacts (systemd unit, Caddyfile, env template) and the full walkthrough are in
