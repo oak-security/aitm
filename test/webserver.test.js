@@ -115,7 +115,7 @@ test("contract: web-api.js exposes every api.* method the renderer calls", () =>
   const shimCode = fs.readFileSync(path.join(__dirname, "..", "server", "web", "web-api.js"), "utf8");
   const sandbox = {
     window: {},
-    document: { addEventListener() {}, createElement: () => ({ style: {} }), body: { appendChild() {} } },
+    document: { addEventListener() {}, createElement: () => ({ style: {} }), body: { appendChild() {}, classList: { add() {} } } },
     fetch: () => Promise.resolve(),
     EventSource: class {},
     FileReader: class {},
@@ -154,6 +154,11 @@ test("e2e: bypass server serves app, rpc, ingest, stream", async () => {
     assert.ok(html.includes('src="web-api.js"'), "web api shim injected");
     assert.ok(html.includes('src="app.js"'), "renderer app served");
     assert.ok(home.headers.get("content-security-policy"), "CSP header set");
+    // Hosted restyle: hosted.css linked after styles.css and served.
+    assert.ok(html.indexOf("styles.css") < html.indexOf("hosted.css"), "hosted.css after styles.css");
+    const hostedCss = await fetch(`${base}/hosted.css`);
+    assert.equal(hostedCss.status, 200);
+    assert.match(hostedCss.headers.get("content-type"), /text\/css/);
 
     const shim = await fetch(`${base}/web-api.js`);
     assert.equal(shim.status, 200);

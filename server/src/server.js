@@ -123,9 +123,11 @@ export function createWebServer(cfg) {
     };
   }
 
-  // The renderer's index.html with the web API shim injected before app.js.
+  // The renderer's index.html with the hosted restyle and the web API shim injected
+  // (shim before app.js so window.api exists; hosted.css after styles.css to override).
   const indexHtml = fs
     .readFileSync(path.join(RENDERER_DIR, "index.html"), "utf8")
+    .replace('<link rel="stylesheet" href="styles.css" />', '<link rel="stylesheet" href="styles.css" />\n    <link rel="stylesheet" href="hosted.css" />')
     .replace('<script src="app.js"></script>', '<script src="web-api.js"></script>\n    <script src="app.js"></script>');
   const loginHtml = fs.readFileSync(path.join(WEB_DIR, "login.html"), "utf8");
 

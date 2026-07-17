@@ -8,6 +8,9 @@
   // Hosted mode: the server owns a single OpenAI key (from .env) and forces the
   // provider/model, so the renderer hides the Settings screen and key gating.
   window.AITM_HOSTED = true;
+  // Opt this document into hosted.css (Hive-style restyle). Set immediately (the
+  // script runs at end of <body>, so document.body exists) to avoid a flash.
+  if (document.body) document.body.classList.add("hosted");
 
   async function rpc(channel, payload) {
     const res = await fetch("/api/rpc", {
