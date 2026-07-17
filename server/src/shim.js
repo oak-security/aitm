@@ -58,6 +58,23 @@ const streamShim = {
   }
 };
 
+// Hosted mode is OpenAI-only: the server forces the provider and models so both the
+// orchestrator (which reads core settings) and the RPC layer are consistent, and no
+// stored per-user settings can switch providers. Models are env-configurable.
+function hostedSettings() {
+  return {
+    provider: "openai",
+    modelFast: (process.env.AITM_MODEL_FAST || "gpt-5-mini").trim(),
+    modelDeep: (process.env.AITM_MODEL_DEEP || "gpt-5.5").trim(),
+    privacyAcknowledged: true
+  };
+}
+const settingsShim = {
+  DEFAULTS: hostedSettings(),
+  get: hostedSettings,
+  set: () => hostedSettings()
+};
+
 let installed = false;
 
 export function installShim() {
@@ -65,13 +82,14 @@ export function installShim() {
   installed = true;
   const KEYSTORE = path.join(ROOT, "src", "main", "keystore.js");
   const STREAM = path.join(ROOT, "src", "main", "stream.js");
+  const SETTINGS = path.join(ROOT, "src", "main", "settings.js");
+  const overrides = { [KEYSTORE]: keystoreShim, [STREAM]: streamShim, [SETTINGS]: settingsShim };
   const origLoad = Module._load;
   Module._load = function (request, parent, isMain) {
     if (request === "electron") return fakeElectron;
     // Match both relative requires from within src/main (orchestrate -> ../keystore)
     // and absolute requires from core.js (require(ROOT/src/main/keystore.js)).
-    if (request === KEYSTORE) return keystoreShim;
-    if (request === STREAM) return streamShim;
+    if (overrides[request]) return overrides[request];
     if (parent && parent.filename && request.startsWith(".")) {
       let resolved;
       try {
@@ -79,8 +97,7 @@ export function installShim() {
       } catch {
         resolved = null;
       }
-      if (resolved === KEYSTORE) return keystoreShim;
-      if (resolved === STREAM) return streamShim;
+      if (overrides[resolved]) return overrides[resolved];
     }
     return origLoad.apply(this, arguments);
   };

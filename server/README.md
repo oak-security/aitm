@@ -14,11 +14,13 @@ TRACE pipeline running server-side. Modeled on Hive's `serve-mt`.
   (`<data>/users/gh-<id>/`) holding projects, settings, and provider keys. The core
   store runs inside an `AsyncLocalStorage` tenant context per request, so there is no
   shared store to guard and no cross-tenant object references.
-- **Provider keys**: users can set their own in Settings (AES-256-GCM at rest, secret
-  from `AITM_KEY_SECRET` or a generated `<data>/.keysecret`); otherwise server-wide
-  `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` from the environment apply. Per-user limits
-  (`AITM_MAX_CONCURRENT_AI`, default 2; `AITM_MAX_AI_PER_DAY`, default unlimited)
-  protect a shared key. Cancel only aborts the caller's own in-flight AI calls.
+- **OpenAI-only, shared key**: the hosted build has no Settings screen. The server
+  forces provider `openai` and the models (`AITM_MODEL_FAST`/`AITM_MODEL_DEEP`, default
+  `gpt-5-mini`/`gpt-5.5`) and uses a single `OPENAI_API_KEY` from the environment for
+  every user. Per-user limits (`AITM_MAX_CONCURRENT_AI`, default 2;
+  `AITM_MAX_AI_PER_DAY`, default unlimited) protect that shared key, and cancel only
+  aborts the caller's own in-flight AI calls. (The per-user encrypted keystore still
+  exists in the core but is not exposed by the web UI.)
 - **CSRF**: mutating requests must present a same-origin `Origin`/`Referer`
   (disabled in bypass mode so curl works). Strict CSP on all pages.
 

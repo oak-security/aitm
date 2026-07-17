@@ -180,6 +180,13 @@ test("e2e: bypass server serves app, rpc, ingest, stream", async () => {
     assert.equal(ks.body.result.providers.openai.configured, false);
 
     // keystore.set must resolve to the per-user shim (not the real Electron keystore).
+    // Hosted mode is OpenAI-only: settings are forced regardless of what is requested.
+    const sget = await rpc("settings.get", {});
+    assert.equal(sget.body.result.provider, "openai");
+    const sset = await rpc("settings.set", { provider: "anthropic", modelFast: "claude-x" });
+    assert.equal(sset.body.result.provider, "openai", "provider cannot be changed");
+    assert.equal(sset.body.result.modelFast, "gpt-5-mini", "models forced");
+
     const set = await rpc("keystore.set", { provider: "openai", key: "sk-e2e-wxyz" });
     assert.equal(set.status, 200);
     assert.equal(set.body.result.providers.openai.configured, true);

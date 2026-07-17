@@ -12,7 +12,8 @@
 //   AITM_MAX_CONCURRENT_AI / AITM_MAX_AI_PER_DAY   per-user limits (2 / unlimited)
 //   AITM_KEY_SECRET     secret encrypting stored per-user provider keys
 //                       (default: generated at <data>/.keysecret)
-//   OPENAI_API_KEY / ANTHROPIC_API_KEY   server-wide fallback provider keys
+//   OPENAI_API_KEY      shared OpenAI key for all users (hosted build is OpenAI-only)
+//   AITM_MODEL_FAST / AITM_MODEL_DEEP   model overrides (gpt-5-mini / gpt-5.5)
 import os from "node:os";
 import path from "node:path";
 import { createWebServer } from "./server.js";
@@ -48,6 +49,10 @@ const cfg = {
 if (!bypass && (!cfg.clientId || !cfg.clientSecret)) {
   console.error("aitm-web: GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET are required (or set AITM_AUTH_BYPASS=1 for local testing).");
   process.exit(1);
+}
+
+if (!(process.env.OPENAI_API_KEY || "").trim()) {
+  console.warn("aitm-web: OPENAI_API_KEY is not set; AI steps will fail until it is (hosted build is OpenAI-only).");
 }
 
 let server;

@@ -5,6 +5,10 @@
 (() => {
   "use strict";
 
+  // Hosted mode: the server owns a single OpenAI key (from .env) and forces the
+  // provider/model, so the renderer hides the Settings screen and key gating.
+  window.AITM_HOSTED = true;
+
   async function rpc(channel, payload) {
     const res = await fetch("/api/rpc", {
       method: "POST",
