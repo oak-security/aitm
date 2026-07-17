@@ -106,7 +106,10 @@ export function createWebServer(cfg) {
   function broadcast(uid, payload) {
     const set = subscribers.get(uid);
     if (!set) return;
-    const frame = `data: ${JSON.stringify(payload)}\n\n`;
+    // The model name is an internal detail of the managed service; strip it so it
+    // never reaches the browser (not the UI, not the network tab).
+    const { model, ...safe } = payload;
+    const frame = `data: ${JSON.stringify(safe)}\n\n`;
     for (const res of set) res.write(frame);
   }
 

@@ -140,12 +140,14 @@ function renderStatusBar() {
   } else {
     right = '<span class="aistatus-idle">Idle</span>';
   }
-  el.innerHTML = `
-    <div class="aistatus-left">
-      <span class="aistatus-tag">AI</span>
+  // Hosted build is a managed service: don't surface the provider name or key at all.
+  const left = HOSTED
+    ? '<span class="aistatus-tag">AI</span>'
+    : `<span class="aistatus-tag">AI</span>
       <span class="aistatus-provider">${esc(provLabel)}</span>
-      <span class="aistatus-key"><span class="dot ${ks.configured ? "on" : "off"}"></span>${esc(keyText)}</span>
-    </div>
+      <span class="aistatus-key"><span class="dot ${ks.configured ? "on" : "off"}"></span>${esc(keyText)}</span>`;
+  el.innerHTML = `
+    <div class="aistatus-left">${left}</div>
     <div class="aistatus-right">${right}</div>`;
 }
 function onStreamEvent(p) {
