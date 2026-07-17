@@ -1,0 +1,34 @@
+# systemd unit for aitm-web on a Hetzner VPS. Install to /etc/systemd/system/.
+# Config lives in /etc/aitm-web/env (mode 600, root:root) — see env.example.
+[Unit]
+Description=AiTM web (multi-tenant threat modeller)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aitm
+Group=aitm
+WorkingDirectory=/opt/aitm
+EnvironmentFile=/etc/aitm-web/env
+Environment=AITM_WEB_DATA=/var/lib/aitm-web
+ExecStart=/usr/bin/node /opt/aitm/server/src/main.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aitm-web
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

@@ -148,6 +148,21 @@ aitm-tui https://github.com/owner/repo   # shallow-cloned, clone removed after
 API keys come from `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the TUI's own key file;
 the desktop app's OS-keychain vault is Electron-only. See `tui/README.md`.
 
+## Web server (aitm-web)
+
+A multi-tenant web frontend (Hetzner-deployable) that serves the same renderer in the
+browser and runs the pipeline server-side, one isolated data dir per user. GitHub OAuth
+gated on Oak Security org membership; localhost auth bypass for testing.
+
+```sh
+npm install
+npm run web:dev                          # AITM_AUTH_BYPASS=1, http://localhost:8790
+# production: set GITHUB_CLIENT_ID/SECRET, AITM_WEB_BASE_URL, then `npm run web`
+```
+
+Deploy artifacts (systemd unit, Caddyfile, env template) and the full walkthrough are in
+`server/README.md`.
+
 ## Develop
 
 ```sh

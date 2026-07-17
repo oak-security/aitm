@@ -1,0 +1,14 @@
+{
+  "name": "aitm-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant web server for AiTM — AI Threat Modeller (TRACE).",
+  "license": "UNLICENSED",
+  "author": { "name": "Oak Security", "email": "info@oaksecurity.io" },
+  "type": "module",
+  "bin": { "aitm-web": "./src/main.js" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/main.js"
+  }
+}

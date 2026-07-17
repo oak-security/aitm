@@ -324,7 +324,7 @@ function sidebar() {
     </ul>
     <div class="sidebar-footer">
       <div class="oak-by"><span>by</span><img src="assets/logo/oak-white.svg" alt="Oak Security" /></div>
-      <a data-action="reveal-folder">Reveal data folder</a>
+      ${api.app ? '<a data-action="reveal-folder">Reveal data folder</a>' : ""}
     </div>
   </aside>`;
 }
@@ -453,10 +453,11 @@ function sourcesView() {
   return `<div class="view">
     ${viewHeader("TRACE · Phases 0–1", "Sources & Scope", "Add local sources and (optionally) the scope, then press Ingest to process and classify.")}
     <h2 style="margin-top:6px">Sources</h2>
-    <p class="hint" style="margin:0 0 12px">Local folders and files only. Add several (e.g. code plus docs); they complement each other.</p>
+    <p class="hint" style="margin:0 0 12px">${api.ingest.repo ? "Folders, files, or a git repository URL." : "Local folders and files only."} Add several (e.g. code plus docs); they complement each other.</p>
     <div class="row" style="margin-bottom:14px">
       ${addButton("ingest-folder", "Add folder")}
       ${addButton("ingest-files", "Add file")}
+      ${api.ingest.repo ? addButton("ingest-repo", "Add repository") : ""}
     </div>
     <div class="card flush">
       <table class="editor"><thead><tr><th>Source</th><th></th></tr></thead>
@@ -763,6 +764,7 @@ async function onClick(e) {
 
       case "ingest-folder": await runBusy("ingest-folder", doIngestFolder); break;
       case "ingest-files": await runBusy("ingest-files", doIngestFiles); break;
+      case "ingest-repo": await runBusy("ingest-repo", doIngestRepo); break;
       case "remove-source": await mutate(() => { state.project.sources = state.project.sources.filter((s) => s.id !== d.id); }); break;
 
       case "process-sources": await doProcessSources(); break;
@@ -911,6 +913,21 @@ async function doIngestFolder() {
   state.project.sources.push(res.source);
   await persistProject();
   toast(`Added folder: ${res.source.label}`);
+}
+// Web-only (feature-detected): the browser build exposes ingest.repo for git URLs.
+async function doIngestRepo() {
+  const url = await promptText({
+    title: "Add repository",
+    label: "Git / GitHub URL",
+    placeholder: "https://github.com/owner/repo",
+    confirmLabel: "Clone & ingest"
+  });
+  if (!url) return;
+  const res = await api.ingest.repo(url);
+  if (res.canceled) return;
+  state.project.sources.push(res.source);
+  await persistProject();
+  toast(`Added repository: ${res.source.label}`);
 }
 async function doIngestFiles() {
   const res = await api.ingest.files();

@@ -65,6 +65,8 @@ export function installShim() {
   const origLoad = Module._load;
   Module._load = function (request, parent, isMain) {
     if (request === "electron") return fakeElectron;
+    if (request === KEYSTORE) return keystoreShim;
+    if (request === STREAM) return streamShim;
     if (parent && parent.filename && request.startsWith(".")) {
       let resolved;
       try {

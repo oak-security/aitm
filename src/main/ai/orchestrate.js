@@ -9,12 +9,25 @@ const { appError } = require("../util");
 const { emitStream } = require("../stream");
 
 // No wall-clock timeout: calls stream, so long generations don't stall. Cancellation is
-// explicit (the renderer's Cancel button -> cancelAll). Tracks in-flight controllers.
-const activeControllers = new Set();
+// explicit (the renderer's Cancel button -> cancelAll). Tracks in-flight controllers,
+// each tagged with a caller-defined scope (multi-tenant hosts set a scope provider so
+// one user's cancel cannot abort another user's in-flight calls; the desktop app leaves
+// the default null scope and cancelAll() aborts everything).
+const activeControllers = new Map(); // controller -> scope
+let scopeProvider = () => null;
 
-function cancelAll() {
-  for (const c of activeControllers) c.abort(appError("cancelled", "Request cancelled."));
-  return { cancelled: activeControllers.size };
+function setScopeProvider(fn) {
+  scopeProvider = typeof fn === "function" ? fn : () => null;
+}
+
+function cancelAll(scope) {
+  let cancelled = 0;
+  for (const [c, s] of activeControllers) {
+    if (scope !== undefined && s !== scope) continue;
+    c.abort(appError("cancelled", "Request cancelled."));
+    cancelled += 1;
+  }
+  return { cancelled };
 }
 
 // Build a compact source context: summaries plus a bounded set of excerpts / sample
@@ -37,7 +50,7 @@ async function call({ model, name, label, schema, system, user, effort }) {
   const resolvedModel = model === "deep" ? cfg.modelDeep : cfg.modelFast;
 
   const controller = new AbortController();
-  activeControllers.add(controller);
+  activeControllers.set(controller, scopeProvider());
   const stage = label || name;
   emitStream({ event: "start", label: stage, model: resolvedModel });
 
@@ -187,4 +200,4 @@ function report(project, enabledPhases) {
   });
 }
 
-module.exports = { classify, traceModel, stride, attackTree, coordination, scopeFilter, report, cancelAll };
+module.exports = { classify, traceModel, stride, attackTree, coordination, scopeFilter, report, cancelAll, setScopeProvider };

@@ -80,7 +80,28 @@ AiTM/
                       #   (env vars / mode-600 file) and stream.js (EventEmitter).
                       #   Adds git-URL clone ingestion and an AI scope filter
                       #   (orchestrate.scopeFilter). See tui/README.md.
+  server/             # aitm-web: multi-tenant web frontend (own package.json, ESM).
+                      #   Same core-loading shim (server/src/shim.js) but scoped per
+                      #   request via AsyncLocalStorage: app.getPath -> per-user data
+                      #   dir, keystore -> per-user AES-GCM key file (server/src/
+                      #   userkeys.js, env fallback), stream -> per-user SSE. GitHub
+                      #   OAuth gated on AITM_ALLOWED_ORGS (default oak-security),
+                      #   in-memory sessions, AITM_AUTH_BYPASS=1 for localhost testing.
+                      #   Browser preload replacement is server/web/web-api.js (fetch +
+                      #   SSE + upload/repo ingestion + download export). Deploy files
+                      #   in server/deploy/. See server/README.md.
 ```
+
+## Core reuse invariant
+
+`src/main/*` (orchestrate, digest, projects/store, settings, phases, report, adapters)
+must stay Electron-decoupled enough that the tui/ and server/ shims can load it by
+faking exactly three touchpoints: `electron` (app.getPath), `keystore.js`, `stream.js`.
+Both shims intercept those by absolute AND relative require path. When adding a new
+`require("electron")` or OS-vault call in src/main, either keep it behind one of those
+three modules or extend both shims. `orchestrate.cancelAll(scope)` takes an optional
+scope (set via `setScopeProvider`) so the web server's per-user cancel can't abort
+another tenant's calls; don't reintroduce a global-only cancel.
 
 ## Build / run / test
 
