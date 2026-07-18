@@ -80,7 +80,9 @@ body.hosted {
 .hosted .btn.danger { background: #fff; color: var(--crit); border-color: rgba(196, 33, 39, 0.4); }
 .hosted .btn.danger:hover { background: rgba(196, 33, 39, 0.06); border-color: var(--crit); color: var(--crit); }
 .hosted .btn.sm { padding: 6px 14px; }
-.hosted .sb-actions .btn { border-radius: 999px; }
+/* Sidebar New/Import/Export sit three-up in a narrow rail: keep them compact so the
+   pill radius reads as a small pill, not a fat oval. */
+.hosted .sb-actions .btn { border-radius: 999px; padding: 8px 10px; font-size: 0.8rem; }
 
 /* ---------- severity ramp (legible on white) ---------- */
 .hosted .risk.Critical { color: var(--crit); }
