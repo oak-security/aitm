@@ -95,12 +95,18 @@ test("models: renderer, TUI and settings agree, and no superseded ids linger", (
     "openai adapter": read("src", "main", "ai", "openai-responses.js")
   };
 
-  const superseded = /\b(claude-(opus-4-8|opus-4-7|opus-4-6|sonnet-4-6|sonnet-4-5)|gpt-5-mini|gpt-5\.5)\b/;
+  const SUPERSEDED = new Set([
+    "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+    "claude-sonnet-4-6", "claude-sonnet-4-5",
+    "gpt-5", "gpt-5-mini", "gpt-5.5"
+  ]);
+  // Only quoted string literals count as model ids. Comments may name a retired model
+  // as history, and the OpenAI adapter's effort gate is the bare regex /^gpt-5/.
   for (const [label, src] of Object.entries(sources)) {
-    // The openai adapter gates effort on /^gpt-5/, which is a prefix test, not an id.
-    const body = src.replace(/\/\^gpt-5\/[^\n]*/g, "");
-    assert.ok(!superseded.test(body), `${label} still refers to a superseded model`);
-    assert.ok(!/claude-[a-z0-9-]*-\d{8}/.test(body), `${label} uses a date-suffixed model id`);
+    for (const [, id] of src.matchAll(/"((?:gpt|claude)-[^"]*)"/g)) {
+      assert.ok(!SUPERSEDED.has(id), `${label} still uses the superseded id ${id}`);
+      assert.ok(!/^claude-[a-z0-9-]*-\d{8}$/.test(id), `${label} uses the date-suffixed id ${id}`);
+    }
   }
 
   // The frontends must not drift apart, which is how the TUI ended up a generation

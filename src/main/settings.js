@@ -7,7 +7,7 @@ const { assertObject } = require("./util");
 
 const DEFAULTS = {
   provider: "openai",
-  modelFast: "gpt-5.6-luna",
+  modelFast: "gpt-5.6-terra",
   modelDeep: "gpt-5.6-sol",
   privacyAcknowledged: false
 };
