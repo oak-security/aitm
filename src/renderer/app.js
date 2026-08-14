@@ -44,9 +44,10 @@ const NAV_PHASES = [
 const PROVIDERS = {
   openai: {
     label: "OpenAI",
-    // GPT-5.6 tiers: luna (cheap) < terra (balanced) < sol (flagship). Terra is listed
-    // first in the fast menu as the safer pick: luna is markedly weaker on long context,
-    // which is what the fast model mostly does here (see the note in orchestrate).
+    // GPT-5.6 tiers: luna (cheap) < terra (balanced) < sol (flagship). Sol is the deep
+    // model. Luna defaults to the fast slot; switch it to terra if the TRACE model or
+    // report start missing things, since the fast slot carries the largest inputs
+    // despite the name (see the note at `call` in orchestrate).
     fast: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
     deep: ["gpt-5.6-sol", "gpt-5.6-terra"],
     defFast: "gpt-5.6-luna",
