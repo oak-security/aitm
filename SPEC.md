@@ -96,10 +96,11 @@ a Tauri sidecar without touching the renderer.
   structuredCall({model, name, schema, system, user, key, signal, onDelta, effort}) }`.
 - **Adapters (both ship)**: `OpenAIResponsesAdapter` (`POST /v1/responses`, JSON-schema
   strict; `effort`→`reasoning.effort` on GPT-5) and `AnthropicAdapter` (Messages API,
-  forced tool call). Selected by `settings.provider`. Defaults — OpenAI: `gpt-5-mini`
-  (fast) / `gpt-5.5` (deep); Anthropic: `claude-sonnet-4-6` (fast) / `claude-opus-4-8`
-  (deep). All overridable via Settings dropdowns. The report and other synthesis steps
-  use the fast model; STRIDE/coordination use the deep model.
+  forced tool call; `effort`→`output_config.effort`). Selected by `settings.provider`.
+  Defaults — OpenAI: `gpt-5-mini` (fast) / `gpt-5.5` (deep); Anthropic:
+  `claude-sonnet-5` (fast) / `claude-opus-5` (deep). All overridable via Settings
+  dropdowns. The report and other synthesis steps use the fast model;
+  STRIDE/coordination use the deep model.
 - **Streaming & cancel**: calls stream (SSE) with no wall-clock timeout; in-flight
   calls are cancellable (`AbortController` registry → `ai.cancel`). A status bar shows
   the stage and a live (approximate) token count, "thinking…" before output begins.

@@ -148,22 +148,22 @@ aitm-tui https://github.com/owner/repo   # shallow-cloned, clone removed after
 API keys come from `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the TUI's own key file;
 the desktop app's OS-keychain vault is Electron-only. See `tui/README.md`.
 
-## Web server (aitm-web)
+## Local web UI (aitm-web)
 
-A multi-tenant web frontend (Hetzner-deployable) that serves the same renderer in the
-browser and runs the pipeline server-side, one isolated data dir per user. GitHub OAuth
-gated on Oak Security org membership; localhost auth bypass for testing. Unlike the
-desktop app, the hosted build is a managed service: OpenAI-only with no Settings screen,
-using one shared `OPENAI_API_KEY` from the environment for every user.
+The same renderer served in your browser instead of an Electron window, running the same
+pipeline against the same project store. Single user, no authentication, bound to
+loopback: it is a third frontend, not a hosted service. It adds the TUI's git/GitHub URL
+ingestion, and uses browser file pickers in place of the native dialogs.
 
 ```sh
 npm install
-OPENAI_API_KEY=sk-... npm run web:dev    # AITM_AUTH_BYPASS=1, http://localhost:8790
-# production: set GITHUB_CLIENT_ID/SECRET, AITM_WEB_BASE_URL, OPENAI_API_KEY, then `npm run web`
+npm run web        # http://localhost:8790
 ```
 
-Deploy artifacts (systemd unit, Caddyfile, env template) and the full walkthrough are in
-`server/README.md`.
+Projects and settings are shared with the desktop app and the TUI; API keys come from
+`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the same key file `aitm-tui` uses (the desktop
+app's OS-keychain vault is Electron-only). Since there is no authentication, do not bind
+it to a non-loopback address; forward the port over SSH instead. See `server/README.md`.
 
 ## Develop
 

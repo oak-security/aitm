@@ -1,7 +1,7 @@
-// RPC channel table mirroring the desktop IPC surface (src/main/ipc/index.js) minus
-// the Electron-dialog channels (native ingest pickers, save dialogs, revealDataFolder).
-// Handlers run inside the caller's tenant context, so the core store/settings/keystore
-// resolve to that user's data dir. Payload validation matches the IPC handlers.
+// RPC channel table mirroring the desktop IPC surface (src/main/ipc/index.js) minus the
+// Electron-dialog channels (native ingest pickers, save dialogs, revealDataFolder).
+// Payload validation matches the IPC handlers; the store, settings, and keystore are the
+// same single-user ones the desktop app and the TUI use.
 import * as core from "./core.js";
 
 const { store, keystore, settings, phases, orchestrate, getAdapter, render, util } = core;
@@ -12,19 +12,7 @@ function requireProject(id) {
   return store.get(id);
 }
 
-// ctx: { uid } (tenant context is already active via runAs); limiter guards ai.* spend.
-export function buildHandlers(limiter) {
-  const aiCall = (fn) => async (payload, ctx) => {
-    const gate = limiter.check(ctx.uid);
-    if (!gate.ok) throw appError("rate_limited", gate.message);
-    limiter.begin(ctx.uid);
-    try {
-      return await fn(payload, ctx);
-    } finally {
-      limiter.end(ctx.uid);
-    }
-  };
-
+export function buildHandlers() {
   return {
     "projects.list": () => store.list(),
     "projects.get": ({ id }) => store.get(id),
@@ -58,30 +46,30 @@ export function buildHandlers(limiter) {
       return store.persist(project);
     },
 
-    "ai.classify": aiCall(async ({ projectId }) => {
+    "ai.classify": async ({ projectId }) => {
       const project = requireProject(projectId);
       const draft = await orchestrate.classify(project);
       project.classification = { ...draft, userOverride: false };
       project.phasesEnabled = phases.seedEnabled(project.classification, project.phasesEnabled);
       project.coordination.enabled = project.phasesEnabled.includes("coordination");
       return store.persist(project);
-    }),
+    },
 
-    "ai.traceModel": aiCall(async ({ projectId }) => {
+    "ai.traceModel": async ({ projectId }) => {
       const project = requireProject(projectId);
       const draft = await orchestrate.traceModel(project);
       project.traceModel = { ...project.traceModel, ...draft };
       return store.persist(project);
-    }),
+    },
 
-    "ai.stride": aiCall(async ({ projectId }) => {
+    "ai.stride": async ({ projectId }) => {
       const project = requireProject(projectId);
       const draft = await orchestrate.stride(project);
       project.strideThreats = (draft.threats || []).map((t) => ({ id: uuid(), status: "draft", ...t }));
       return store.persist(project);
-    }),
+    },
 
-    "ai.attackTree": aiCall(async ({ projectId, selection }) => {
+    "ai.attackTree": async ({ projectId, selection }) => {
       let project = requireProject(projectId);
       if (!phases.isEnabled(project, "attack-trees")) throw appError("phase_disabled", "The Attack Trees phase is disabled for this project.");
       const existing = new Set((project.attackTrees || []).map((t) => t.threatId).filter(Boolean));
@@ -93,17 +81,17 @@ export function buildHandlers(limiter) {
         project = store.persist(project);
       }
       return project;
-    }),
+    },
 
-    "ai.coordination": aiCall(async ({ projectId }) => {
+    "ai.coordination": async ({ projectId }) => {
       const project = requireProject(projectId);
       if (!phases.isEnabled(project, "coordination")) throw appError("phase_disabled", "The Coordination phase is disabled for this project.");
       const draft = await orchestrate.coordination(project);
       project.coordination = { enabled: true, scenarios: draft.scenarios || [], notes: draft.notes || "" };
       return store.persist(project);
-    }),
+    },
 
-    "ai.report": aiCall(async ({ projectId }) => {
+    "ai.report": async ({ projectId }) => {
       const project = requireProject(projectId);
       const enabled = Array.isArray(project.phasesEnabled) ? project.phasesEnabled : [];
       const draft = await orchestrate.report(project, enabled);
@@ -113,8 +101,8 @@ export function buildHandlers(limiter) {
         generatedAt: new Date().toISOString()
       };
       return store.persist(project);
-    }),
+    },
 
-    "ai.cancel": (_payload, ctx) => orchestrate.cancelAll(ctx.uid)
+    "ai.cancel": () => orchestrate.cancelAll()
   };
 }

@@ -80,16 +80,14 @@ AiTM/
                       #   (env vars / mode-600 file) and stream.js (EventEmitter).
                       #   Adds git-URL clone ingestion and an AI scope filter
                       #   (orchestrate.scopeFilter). See tui/README.md.
-  server/             # aitm-web: multi-tenant web frontend (own package.json, ESM).
-                      #   Same core-loading shim (server/src/shim.js) but scoped per
-                      #   request via AsyncLocalStorage: app.getPath -> per-user data
-                      #   dir, keystore -> per-user AES-GCM key file (server/src/
-                      #   userkeys.js, env fallback), stream -> per-user SSE. GitHub
-                      #   OAuth gated on AITM_ALLOWED_ORGS (default oak-security),
-                      #   in-memory sessions, AITM_AUTH_BYPASS=1 for localhost testing.
+  server/             # aitm-web: local web frontend (own package.json, ESM). Same
+                      #   core-loading shim as the TUI (server/src/shim.js): shared
+                      #   userData dir, keystore -> tui/src/keys.js, stream -> SSE
+                      #   fanout. Single user, no auth, loopback-bound (SPEC.md s.2);
+                      #   mutating requests need a loopback Origin if they send one.
                       #   Browser preload replacement is server/web/web-api.js (fetch +
-                      #   SSE + upload/repo ingestion + download export). Deploy files
-                      #   in server/deploy/. See server/README.md.
+                      #   SSE + upload/repo ingestion + download export).
+                      #   See server/README.md.
 ```
 
 ## Core reuse invariant
@@ -99,9 +97,11 @@ must stay Electron-decoupled enough that the tui/ and server/ shims can load it 
 faking exactly three touchpoints: `electron` (app.getPath), `keystore.js`, `stream.js`.
 Both shims intercept those by absolute AND relative require path. When adding a new
 `require("electron")` or OS-vault call in src/main, either keep it behind one of those
-three modules or extend both shims. `orchestrate.cancelAll(scope)` takes an optional
-scope (set via `setScopeProvider`) so the web server's per-user cancel can't abort
-another tenant's calls; don't reintroduce a global-only cancel.
+three modules or extend both shims. All three frontends are single-user against one
+shared data dir, so no shim overrides `settings.js` or partitions the store; keep it
+that way. `orchestrate.cancelAll(scope)` still accepts an optional scope (via
+`setScopeProvider`), but nothing sets one now: the default null scope means
+`cancelAll()` aborts every in-flight call, which is the desktop behaviour.
 
 ## Build / run / test
 

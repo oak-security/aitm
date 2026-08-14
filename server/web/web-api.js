@@ -1,16 +1,10 @@
 // Browser replacement for the Electron preload: defines the same window.api surface,
 // backed by POST /api/rpc (per-channel), SSE for ai.onStream, browser file pickers +
 // uploads for ingestion, and streamed downloads for report export. Response and error
-// shapes match the IPC contract, so app.js runs unchanged.
+// shapes match the IPC contract, so app.js runs unchanged — the browser build behaves
+// like the desktop app, including the Settings screen and per-provider keys.
 (() => {
   "use strict";
-
-  // Hosted mode: the server owns a single OpenAI key (from .env) and forces the
-  // provider/model, so the renderer hides the Settings screen and key gating.
-  window.AITM_HOSTED = true;
-  // Opt this document into hosted.css (Hive-style restyle). Set immediately (the
-  // script runs at end of <body>, so document.body exists) to avoid a flash.
-  if (document.body) document.body.classList.add("hosted");
 
   async function rpc(channel, payload) {
     const res = await fetch("/api/rpc", {
@@ -18,10 +12,6 @@
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ channel, payload: payload === undefined ? {} : payload })
     });
-    if (res.status === 401) {
-      location.href = "/";
-      throw new Error("unauthenticated: Session expired.");
-    }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const e = (body && body.error) || {};
@@ -36,10 +26,6 @@
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
     });
-    if (res.status === 401) {
-      location.href = "/";
-      throw new Error("unauthenticated: Session expired.");
-    }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const e = (body && body.error) || {};
@@ -217,27 +203,4 @@
     }
     // no `app` namespace: the renderer feature-detects it (reveal-folder is desktop-only)
   };
-
-  // ---- signed-in badge -----------------------------------------------------
-
-  document.addEventListener("DOMContentLoaded", async () => {
-    try {
-      const res = await fetch("/auth/me");
-      if (!res.ok) return;
-      const { user, bypass } = await res.json();
-      const badge = document.createElement("div");
-      badge.style.cssText =
-        "position:fixed;top:10px;right:12px;z-index:60;font-size:12px;color:#6f747a;" +
-        "background:rgba(247,246,245,.92);border:1px solid #e3e1de;border-radius:999px;padding:4px 12px";
-      badge.append(`@${user.login}${bypass ? " · auth bypass" : ""} · `);
-      const out = document.createElement("a");
-      out.textContent = "sign out";
-      out.href = "/auth/logout";
-      out.style.cssText = "color:#9C0069;cursor:pointer;text-decoration:none";
-      badge.appendChild(out);
-      document.body.appendChild(badge);
-    } catch {
-      /* badge is cosmetic */
-    }
-  });
 })();

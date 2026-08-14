@@ -36,7 +36,8 @@ export function resolveTargets(args) {
 
 export function cloneRepo(url) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "aitm-tui-clone-"));
-  const res = spawnSync("git", ["clone", "--depth", "1", "--single-branch", url, tmp], {
+  // "--" so a URL that starts with a dash can never be read as a git option.
+  const res = spawnSync("git", ["clone", "--depth", "1", "--single-branch", "--", url, tmp], {
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 300000
   });

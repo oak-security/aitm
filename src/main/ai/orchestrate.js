@@ -10,9 +10,9 @@ const { emitStream } = require("../stream");
 
 // No wall-clock timeout: calls stream, so long generations don't stall. Cancellation is
 // explicit (the renderer's Cancel button -> cancelAll). Tracks in-flight controllers,
-// each tagged with a caller-defined scope (multi-tenant hosts set a scope provider so
-// one user's cancel cannot abort another user's in-flight calls; the desktop app leaves
-// the default null scope and cancelAll() aborts everything).
+// each tagged with a caller-defined scope. All current frontends are single-user and
+// leave the default null scope, so cancelAll() aborts everything; setScopeProvider is
+// retained for a host that ever needs to partition cancellation.
 const activeControllers = new Map(); // controller -> scope
 let scopeProvider = () => null;
 

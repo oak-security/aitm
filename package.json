@@ -12,7 +12,6 @@
     "dev": "electron . --dev",
     "tui": "node tui/src/aitm-tui.js",
     "web": "node server/src/main.js",
-    "web:dev": "AITM_AUTH_BYPASS=1 node server/src/main.js",
     "check": "node --check src/main/index.js && node --check src/preload/index.js && node --check src/renderer/app.js && node --check server/src/main.js && node --check server/src/server.js && node --check server/web/web-api.js",
     "test": "node --test 'test/**/*.test.js'",
     "dist": "electron-builder",

@@ -1,9 +1,0 @@
-# Reverse proxy for aitm-web. flush_interval -1 disables buffering so SSE streams.
-# With Cloudflare in front (SSL mode "Full"), `tls internal` self-signs the origin;
-# without Cloudflare, remove it and Caddy provisions Let's Encrypt automatically.
-aitm.oaksecurity.io {
-	tls internal
-	reverse_proxy 127.0.0.1:8790 {
-		flush_interval -1
-	}
-}

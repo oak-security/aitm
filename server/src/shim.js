@@ -1,39 +1,42 @@
-// Loads AiTM's main-process core outside Electron for multi-tenant serving. Same
-// Module._load approach as tui/src/shim.js, but every replaced touchpoint resolves
-// through AsyncLocalStorage: each HTTP request runs inside a tenant context
-// { uid, dir, emit }, so app.getPath("userData") returns that user's private data dir,
-// keystore reads that user's encrypted key file (env fallback), and emitStream routes
-// to that user's SSE connections. Tenant isolation is physical (one directory per
-// GitHub identity), not a route-layer ownership map.
-import { AsyncLocalStorage } from "node:async_hooks";
+// Loads AiTM's main-process core outside Electron for the local web UI. Same
+// Module._load approach and the same three touchpoints as tui/src/shim.js:
+//   - "electron": a fake exposing app.getPath("userData") so the web UI shares the
+//     desktop app's and the TUI's project store and settings.json.
+//   - src/main/keystore.js: safeStorage is Electron-only, so keys come from env vars
+//     or the shared non-Electron key file (tui/src/keys.js).
+//   - src/main/stream.js: emitStream events go to an EventEmitter the server fans out
+//     to connected SSE clients.
+// Single-user and single-tenant by design (SPEC.md section 2): the server binds
+// loopback, trusts the local user, and holds no accounts, sessions, or per-user dirs.
 import { createRequire } from "node:module";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import * as userkeys from "./userkeys.js";
+import * as tuiKeys from "../../tui/src/keys.js";
 
 const require = createRequire(import.meta.url);
 const Module = require("node:module");
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const als = new AsyncLocalStorage();
+export const streamBus = new EventEmitter();
 
-export function ctx() {
-  const c = als.getStore();
-  if (!c) throw new Error("aitm-web: core call outside a tenant context");
-  return c;
-}
-
-export function runAs(context, fn) {
-  return als.run(context, fn);
+// Twin of tui/src/shim.js userDataDir(); duplicated rather than imported so loading
+// this module never pulls in the TUI's own Module._load hook.
+export function userDataDir() {
+  if (process.env.AITM_DATA_DIR) return process.env.AITM_DATA_DIR;
+  if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Application Support", "AiTM");
+  if (process.platform === "win32") return path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "AiTM");
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "AiTM");
 }
 
 const fakeElectron = {
   app: {
     getPath(name) {
       if (name !== "userData") throw new Error(`aitm-web electron shim: unsupported path "${name}"`);
-      const dir = ctx().dir;
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const dir = userDataDir();
+      fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
   },
@@ -43,36 +46,18 @@ const fakeElectron = {
 };
 
 const keystoreShim = {
-  readKey: (provider) => userkeys.readKey(ctx().dir, provider),
-  setKey: (provider, key) => userkeys.setKey(ctx().dir, provider, key),
-  clearKey: (provider) => userkeys.clearKey(ctx().dir, provider),
-  status: () => userkeys.status(ctx().dir),
-  encryptionAvailable: () => true,
-  PROVIDERS: userkeys.PROVIDERS
+  readKey: tuiKeys.readKey,
+  setKey: tuiKeys.setKey,
+  clearKey: tuiKeys.clearKey,
+  status: tuiKeys.status,
+  encryptionAvailable: tuiKeys.encryptionAvailable,
+  PROVIDERS: tuiKeys.PROVIDERS
 };
 
 const streamShim = {
   emitStream(payload) {
-    const c = als.getStore();
-    if (c && typeof c.emit === "function") c.emit(payload);
+    streamBus.emit("stream", payload);
   }
-};
-
-// Hosted mode is OpenAI-only: the server forces the provider and models so both the
-// orchestrator (which reads core settings) and the RPC layer are consistent, and no
-// stored per-user settings can switch providers. Models are env-configurable.
-function hostedSettings() {
-  return {
-    provider: "openai",
-    modelFast: (process.env.AITM_MODEL_FAST || "gpt-5-mini").trim(),
-    modelDeep: (process.env.AITM_MODEL_DEEP || "gpt-5.5").trim(),
-    privacyAcknowledged: true
-  };
-}
-const settingsShim = {
-  DEFAULTS: hostedSettings(),
-  get: hostedSettings,
-  set: () => hostedSettings()
 };
 
 let installed = false;
@@ -82,8 +67,7 @@ export function installShim() {
   installed = true;
   const KEYSTORE = path.join(ROOT, "src", "main", "keystore.js");
   const STREAM = path.join(ROOT, "src", "main", "stream.js");
-  const SETTINGS = path.join(ROOT, "src", "main", "settings.js");
-  const overrides = { [KEYSTORE]: keystoreShim, [STREAM]: streamShim, [SETTINGS]: settingsShim };
+  const overrides = { [KEYSTORE]: keystoreShim, [STREAM]: streamShim };
   const origLoad = Module._load;
   Module._load = function (request, parent, isMain) {
     if (request === "electron") return fakeElectron;

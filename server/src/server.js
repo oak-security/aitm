@@ -1,16 +1,14 @@
-// The multi-tenant HTTP + SSE server. Serves the desktop renderer as a web app (with
+// Local single-user HTTP + SSE server. Serves the desktop renderer as a web app (with
 // web-api.js swapped in for the Electron preload), an RPC endpoint mirroring the IPC
-// channels, upload/repo ingestion, report downloads, and a per-user SSE stream for AI
-// progress events. Every API call runs inside the tenant's AsyncLocalStorage context.
+// channels, upload/repo ingestion, report downloads, and an SSE stream for AI progress
+// events. No auth, no accounts, no tenancy: it binds loopback and trusts the local user
+// exactly as the desktop app and the TUI do.
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as core from "./core.js";
-import { runAs, als } from "./shim.js";
-import * as userkeys from "./userkeys.js";
-import { AuthManager, sameOrigin, userDirName } from "./auth.js";
-import { AiLimiter } from "./limiter.js";
+import { streamBus } from "./shim.js";
 import { buildHandlers } from "./rpc.js";
 import * as ingest from "./ingest.js";
 
@@ -23,8 +21,8 @@ const MAX_UPLOAD_BODY = 192 * 1024 * 1024; // base64-encoded upload JSON
 
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "font-src 'self'; img-src 'self' data: https://avatars.githubusercontent.com; " +
-  "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
+  "font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; " +
+  "base-uri 'none'; form-action 'none'";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -39,8 +37,6 @@ const MIME = {
 
 const ERROR_STATUS = {
   not_found: 404,
-  rate_limited: 429,
-  unauthenticated: 401,
   too_large: 413,
   too_many_files: 413
 };
@@ -84,57 +80,59 @@ async function readJson(req, maxBytes) {
   }
 }
 
-export function createWebServer(cfg) {
-  const dataRoot = cfg.dataRoot;
-  fs.mkdirSync(path.join(dataRoot, "users"), { recursive: true, mode: 0o700 });
-  userkeys.initSecret(dataRoot);
+const LOOPBACK = ["localhost", "127.0.0.1", "::1"];
 
-  const auth = new AuthManager(cfg);
-  const limiter = new AiLimiter({ maxConcurrent: cfg.maxConcurrent, maxPerDay: cfg.maxPerDay });
-  const handlers = buildHandlers(limiter);
-  const expectedOrigin = cfg.baseUrl ? new URL(cfg.baseUrl).origin : null;
-  const enforceOrigin = !cfg.bypass && Boolean(expectedOrigin);
+// Host headers and Origin hostnames arrive with ports and IPv6 brackets; compare bare.
+function bareHost(value) {
+  return String(value || "")
+    .trim()
+    .replace(/:\d+$/, "")
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
+}
 
-  // One user's cancel only aborts that user's in-flight provider calls.
-  core.orchestrate.setScopeProvider(() => {
-    const c = als.getStore();
-    return c ? c.uid : null;
+export function hostAllowed(value, allowed) {
+  const host = bareHost(value);
+  return Boolean(host) && (LOOPBACK.includes(host) || allowed.has(host));
+}
+
+// Two guards, both needed once the server answers on more than loopback:
+//   Host  (every request) — the name the browser was pointed at. A DNS-rebinding page
+//     resolves its own domain to this address, so its requests carry that domain as
+//     Host and fail here. This is what makes a non-loopback bind safe to reach.
+//   Origin/Referer (mutating requests) — the page driving the request. Blocks an
+//     ordinary cross-site POST. Absent on curl/scripts, which are allowed through:
+//     with no session cookie there is no ambient credential for them to replay, so the
+//     only thing to defend against is a browser used as a confused deputy.
+export function isAllowedOrigin(req, allowed) {
+  const raw = req.headers.origin || req.headers.referer;
+  if (!raw) return true;
+  try {
+    return hostAllowed(new URL(raw).hostname, allowed);
+  } catch {
+    return false;
+  }
+}
+
+// allowedHosts: extra hostnames this server may be reached by (beyond loopback), e.g. a
+// Tailscale MagicDNS name or tailnet IP. Everything else is refused.
+export function createWebServer({ allowedHosts = [] } = {}) {
+  const allowed = new Set(allowedHosts.map(bareHost).filter(Boolean));
+  const handlers = buildHandlers();
+
+  // SSE fanout: the stream shim's emitStream lands here, and every connected tab gets
+  // a copy (the desktop app has one window; a browser may have several).
+  const subscribers = new Set();
+  streamBus.on("stream", (payload) => {
+    const frame = `data: ${JSON.stringify(payload)}\n\n`;
+    for (const res of subscribers) res.write(frame);
   });
 
-  // Per-user SSE fanout; the stream shim's emitStream lands here via ctx.emit.
-  const subscribers = new Map(); // uid -> Set<res>
-  function broadcast(uid, payload) {
-    const set = subscribers.get(uid);
-    if (!set) return;
-    // The model name is an internal detail of the managed service; strip it so it
-    // never reaches the browser (not the UI, not the network tab).
-    const { model, ...safe } = payload;
-    const frame = `data: ${JSON.stringify(safe)}\n\n`;
-    for (const res of set) res.write(frame);
-  }
-
-  function tenantContext(user) {
-    const uid = user.id;
-    return {
-      uid,
-      user,
-      dir: path.join(dataRoot, "users", userDirName(uid)),
-      emit: (payload) => broadcast(uid, payload)
-    };
-  }
-
-  // The renderer's index.html with the hosted restyle and the web API shim injected
-  // (shim before app.js so window.api exists; hosted.css after styles.css to override).
+  // The renderer's index.html with the web API shim injected before app.js, so
+  // window.api exists by the time the renderer runs.
   const indexHtml = fs
     .readFileSync(path.join(RENDERER_DIR, "index.html"), "utf8")
-    .replace('<link rel="stylesheet" href="styles.css" />', '<link rel="stylesheet" href="styles.css" />\n    <link rel="stylesheet" href="hosted.css" />')
     .replace('<script src="app.js"></script>', '<script src="web-api.js"></script>\n    <script src="app.js"></script>');
-  const loginHtml = fs.readFileSync(path.join(WEB_DIR, "login.html"), "utf8");
-
-  function sendHtml(res, html) {
-    res.writeHead(200, { "content-type": MIME[".html"], "content-security-policy": CSP });
-    res.end(html);
-  }
 
   function serveStatic(res, baseDir, rel) {
     const file = path.normalize(path.join(baseDir, rel));
@@ -153,36 +151,25 @@ export function createWebServer(cfg) {
     return true;
   }
 
-  function serveLogin(res, query) {
-    const err = query.get("auth_error");
-    const message = err
-      ? `<p class="login-error">${escapeHtml(err)}</p>`
-      : auth.githubEnabled
-        ? ""
-        : '<p class="login-error">GitHub OAuth is not configured on this server.</p>';
-    sendHtml(res, loginHtml.replace("{{MESSAGE}}", message).replace("{{ORG}}", escapeHtml(cfg.orgs.join(", ") || "allowed users")));
-  }
-
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://internal");
     const pathname = url.pathname;
     const m = req.method || "GET";
 
     try {
-      if (pathname === "/api/healthz") return json(res, 200, { ok: true });
-
-      if (pathname.startsWith("/auth/")) {
-        const consumed = await auth.handle(req, res, pathname, url.searchParams);
-        if (consumed !== false) return;
-        return json(res, 404, { error: { code: "not_found", message: "No such auth route." } });
+      if (!hostAllowed(req.headers.host, allowed)) {
+        return json(res, 403, {
+          error: { code: "bad_host", message: `Refusing requests for host "${String(req.headers.host || "").slice(0, 80)}".` }
+        });
       }
 
-      // Static app shell. Assets are unauthenticated (no secrets); "/" is gated so an
-      // unauthenticated visit lands on the login page.
+      if (pathname === "/api/healthz") return json(res, 200, { ok: true });
+
+      // Static app shell.
       if (m === "GET" && !pathname.startsWith("/api/")) {
         if (pathname === "/" || pathname === "/index.html") {
-          if (!auth.currentUser(req)) return serveLogin(res, url.searchParams);
-          return sendHtml(res, indexHtml);
+          res.writeHead(200, { "content-type": MIME[".html"], "content-security-policy": CSP });
+          return res.end(indexHtml);
         }
         const rel = decodeURIComponent(pathname).replace(/^\/+/, "");
         if (serveStatic(res, WEB_DIR, rel)) return;
@@ -190,14 +177,9 @@ export function createWebServer(cfg) {
         return json(res, 404, { error: { code: "not_found", message: "Not found." } });
       }
 
-      // ---- API: auth + CSRF gates ----
-      const user = auth.currentUser(req);
-      if (!user) return json(res, 401, { error: { code: "unauthenticated", message: "Not signed in." } });
-      const mutating = m !== "GET" && m !== "HEAD";
-      if (mutating && enforceOrigin && !sameOrigin(req, expectedOrigin)) {
+      if (m !== "GET" && m !== "HEAD" && !isAllowedOrigin(req, allowed)) {
         return json(res, 403, { error: { code: "bad_origin", message: "Cross-origin request rejected." } });
       }
-      const ctx = tenantContext(user);
 
       if (m === "GET" && pathname === "/api/stream") {
         res.writeHead(200, {
@@ -206,14 +188,11 @@ export function createWebServer(cfg) {
           connection: "keep-alive"
         });
         res.write(": connected\n\n");
-        let set = subscribers.get(ctx.uid);
-        if (!set) subscribers.set(ctx.uid, (set = new Set()));
-        set.add(res);
+        subscribers.add(res);
         const hb = setInterval(() => res.write(": ping\n\n"), 15000);
         req.on("close", () => {
           clearInterval(hb);
-          set.delete(res);
-          if (!set.size) subscribers.delete(ctx.uid);
+          subscribers.delete(res);
         });
         return;
       }
@@ -222,7 +201,7 @@ export function createWebServer(cfg) {
         const body = await readJson(req, MAX_RPC_BODY);
         const handler = handlers[body.channel];
         if (!handler) return json(res, 404, { error: { code: "no_channel", message: `Unknown channel: ${String(body.channel).slice(0, 64)}` } });
-        const result = await runAs(ctx, () => handler(body.payload || {}, ctx));
+        const result = await handler(body.payload || {});
         return json(res, 200, { result: result === undefined ? null : result });
       }
 
@@ -231,37 +210,34 @@ export function createWebServer(cfg) {
         const fn = { files: ingest.ingestFiles, folder: ingest.ingestFolder, repo: ingest.ingestRepo }[kind];
         if (!fn) return json(res, 404, { error: { code: "not_found", message: "No such ingest route." } });
         const body = await readJson(req, MAX_UPLOAD_BODY);
-        const result = await runAs(ctx, () => fn(body));
-        return json(res, 200, result);
+        return json(res, 200, await fn(body));
       }
 
       if (m === "GET" && (pathname === "/api/report/md" || pathname === "/api/report/pdf")) {
         const projectId = url.searchParams.get("projectId") || "";
-        return await runAs(ctx, async () => {
-          const project = core.store.get(projectId);
-          const markdown = project.report && project.report.markdown;
-          if (!markdown || !markdown.trim()) {
-            return json(res, 400, { error: { code: "empty_report", message: "Generate a report before exporting." } });
-          }
-          const base = `${core.safeDownloadName(project.project.name)}-threat-model`;
-          if (pathname.endsWith("/md")) {
-            res.writeHead(200, {
-              "content-type": "text/markdown; charset=utf-8",
-              "content-disposition": `attachment; filename="${base}.md"`
-            });
-            return res.end(markdown);
-          }
-          const pdf = await core.renderReportPdf({
-            title: project.project.name,
-            markdown,
-            generatedAt: project.report.generatedAt
-          });
+        const project = core.store.get(projectId);
+        const markdown = project.report && project.report.markdown;
+        if (!markdown || !markdown.trim()) {
+          return json(res, 400, { error: { code: "empty_report", message: "Generate a report before exporting." } });
+        }
+        const base = `${core.safeDownloadName(project.project.name)}-threat-model`;
+        if (pathname.endsWith("/md")) {
           res.writeHead(200, {
-            "content-type": "application/pdf",
-            "content-disposition": `attachment; filename="${base}.pdf"`
+            "content-type": "text/markdown; charset=utf-8",
+            "content-disposition": `attachment; filename="${base}.md"`
           });
-          return res.end(pdf);
+          return res.end(markdown);
+        }
+        const pdf = await core.renderReportPdf({
+          title: project.project.name,
+          markdown,
+          generatedAt: project.report.generatedAt
         });
+        res.writeHead(200, {
+          "content-type": "application/pdf",
+          "content-disposition": `attachment; filename="${base}.pdf"`
+        });
+        return res.end(pdf);
       }
 
       return json(res, 404, { error: { code: "not_found", message: "Not found." } });
@@ -272,8 +248,4 @@ export function createWebServer(cfg) {
   });
 
   return server;
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }

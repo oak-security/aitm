@@ -9,10 +9,6 @@
 
 const api = window.api;
 
-// Hosted web build: server owns a single OpenAI key and forces the models, so there
-// is no Settings screen and no per-user key gating. Desktop leaves this false.
-const HOSTED = Boolean(window.AITM_HOSTED);
-
 const PROFILES = [
   "Unclassified", "Generic IT system", "Web application / SaaS", "Cloud / infrastructure",
   "Mobile application", "Enterprise network", "Data pipeline / ML system", "IoT / embedded",
@@ -55,10 +51,10 @@ const PROVIDERS = {
   },
   anthropic: {
     label: "Anthropic",
-    fast: ["claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-opus-4-8"],
-    deep: ["claude-opus-4-8", "claude-sonnet-4-6"],
-    defFast: "claude-sonnet-4-6",
-    defDeep: "claude-opus-4-8"
+    fast: ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5"],
+    deep: ["claude-opus-5", "claude-sonnet-5"],
+    defFast: "claude-sonnet-5",
+    defDeep: "claude-opus-5"
   }
 };
 
@@ -126,10 +122,7 @@ function renderStatusBar() {
   const provId = activeProvider();
   const provLabel = (PROVIDERS[provId] || {}).label || provId;
   const ks = keyState(provId);
-  // Hosted uses a shared server key: show readiness, never the key's last4.
-  const keyText = HOSTED
-    ? "shared key"
-    : !ks.configured ? "no key set" : `key ${state.keyVerified[provId] ? "valid" : "set"} ····${ks.last4}`;
+  const keyText = !ks.configured ? "no key set" : `key ${state.keyVerified[provId] ? "valid" : "set"} ····${ks.last4}`;
   const busy = aiInFlight();
   let right;
   if (busy) {
@@ -140,10 +133,7 @@ function renderStatusBar() {
   } else {
     right = '<span class="aistatus-idle">Idle</span>';
   }
-  // Hosted build is a managed service: don't surface the provider name or key at all.
-  const left = HOSTED
-    ? '<span class="aistatus-tag">AI</span>'
-    : `<span class="aistatus-tag">AI</span>
+  const left = `<span class="aistatus-tag">AI</span>
       <span class="aistatus-provider">${esc(provLabel)}</span>
       <span class="aistatus-key"><span class="dot ${ks.configured ? "on" : "off"}"></span>${esc(keyText)}</span>`;
   el.innerHTML = `
@@ -234,9 +224,7 @@ function keyState(provider = activeProvider()) {
   return (state.keyStatus.providers && state.keyStatus.providers[provider]) || { configured: false, last4: "" };
 }
 function keyConfigured() {
-  // Hosted: the server holds the shared key; a missing key surfaces as a provider
-  // error on the call itself rather than a "go to Settings" gate that doesn't exist.
-  return HOSTED || keyState().configured;
+  return keyState().configured;
 }
 function keyPlaceholder(provider) {
   return provider === "anthropic" ? "sk-ant-…" : "sk-…";
@@ -291,7 +279,6 @@ function aiInFlight() {
 
 function render() {
   let main;
-  if (HOSTED && state.view === "settings") state.view = "overview"; // no settings screen when hosted
   if (state.view === "settings") main = settingsView(); // global; reachable without a project
   else if (state.project) main = viewHtml();
   else main = emptyState();
@@ -331,9 +318,9 @@ function sidebar() {
       ${navItems.map(([id, label, num]) => navButton(id, label, num)).join("")}
       <li><button class="${state.view === "phases" ? "active" : ""}" data-action="view" data-view="phases"><span class="num">⚙</span> Phases</button></li>
     </ul>` : ""}
-    ${HOSTED ? "" : `<ul class="nav" style="margin-top:auto">
+    <ul class="nav" style="margin-top:auto">
       <li><button class="${state.view === "settings" ? "active" : ""}" data-action="view" data-view="settings"><span class="num">⚙</span> Settings</button></li>
-    </ul>`}
+    </ul>
     <div class="sidebar-footer">
       <div class="oak-by"><span>by</span><img src="assets/logo/oak-white.svg" alt="Oak Security" /></div>
       ${api.app ? '<a data-action="reveal-folder">Reveal data folder</a>' : ""}

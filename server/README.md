@@ -1,73 +1,96 @@
 # aitm-web
 
-Multi-tenant web frontend for AiTM. Serves the desktop app's renderer in the browser
-(the Electron preload is replaced by `web/web-api.js` over HTTP + SSE) with the same
-TRACE pipeline running server-side. Modeled on Hive's `serve-mt`.
+Local web frontend for AiTM. Serves the desktop app's renderer in the browser (the
+Electron preload is replaced by `web/web-api.js` over HTTP + SSE) with the same TRACE
+pipeline running in the Node process behind it.
 
-## Tenancy and auth
+It is a **third frontend, not a service**: single user, no authentication, no accounts,
+no tenancy, bound to loopback, trusting the local user exactly as the desktop app and the
+TUI do (SPEC.md section 2). Use it when you want the desktop UI without an Electron
+window, or on a machine where installing the packaged app is inconvenient.
 
-- **GitHub OAuth**, gated on membership of `AITM_ALLOWED_ORGS` (default `oak-security`;
-  `read:org` scope so private membership counts) or an `AITM_ALLOWED_USERS` allowlist.
-- **Sessions** are opaque random ids held in memory (7-day TTL, `HttpOnly SameSite=Lax`
-  cookie, `Secure` on HTTPS). A restart signs everyone out.
-- **Isolation is physical**: each GitHub identity gets its own data dir
-  (`<data>/users/gh-<id>/`) holding projects, settings, and provider keys. The core
-  store runs inside an `AsyncLocalStorage` tenant context per request, so there is no
-  shared store to guard and no cross-tenant object references.
-- **OpenAI-only, shared key**: the hosted build has no Settings screen. The server
-  forces provider `openai` and the models (`AITM_MODEL_FAST`/`AITM_MODEL_DEEP`, default
-  `gpt-5-mini`/`gpt-5.5`) and uses a single `OPENAI_API_KEY` from the environment for
-  every user. Per-user limits (`AITM_MAX_CONCURRENT_AI`, default 2;
-  `AITM_MAX_AI_PER_DAY`, default unlimited) protect that shared key, and cancel only
-  aborts the caller's own in-flight AI calls. (The per-user encrypted keystore still
-  exists in the core but is not exposed by the web UI.)
-- **CSRF**: mutating requests must present a same-origin `Origin`/`Referer`
-  (disabled in bypass mode so curl works). Strict CSP on all pages.
-
-## Local testing (auth bypass)
+## Run
 
 ```sh
-npm install                      # repo root, once
-AITM_AUTH_BYPASS=1 node server/src/main.js
-# → http://localhost:8790 as user local:dev, no GitHub required
+npm install            # repo root, once
+npm run web            # http://localhost:8790
 ```
 
-Bypass refuses to start when `AITM_WEB_BASE_URL` is not localhost.
+| Environment variable | Meaning |
+| --- | --- |
+| `AITM_WEB_PORT` | listen port (default `8790`) |
+| `AITM_WEB_HOST` | bind address (default `127.0.0.1`) |
+| `AITM_WEB_ALLOWED_HOSTS` | comma list of extra hostnames the server answers to |
+| `AITM_DATA_DIR` | project store location (default: the desktop app's data dir) |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | provider keys, if you'd rather not store them |
+
+**There is no authentication.** Anyone who can reach the port has full access to your
+projects, your provider keys, and your API spend. Keep the bind address on loopback
+(the server warns if you change it) and reach it from other machines over something that
+does the authenticating for you.
+
+The server refuses any request whose `Host` is not loopback or in
+`AITM_WEB_ALLOWED_HOSTS`, so a DNS-rebinding page pointed at the port gets a 403 rather
+than an app. That also means reaching it by any other name, directly or through a proxy,
+needs that name allowlisted.
+
+### Over Tailscale
+
+`tailscale serve` keeps the app on loopback and terminates TLS in tailscaled, so nothing
+is exposed beyond your tailnet (this is `serve`, not `funnel`):
+
+```sh
+AITM_WEB_ALLOWED_HOSTS=$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")') npm run web
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8790
+# → https://<host>.<tailnet>.ts.net/ ; `tailscale serve status`, `tailscale serve reset`
+```
+
+### Over SSH
+
+```sh
+ssh -L 8790:localhost:8790 host    # then http://localhost:8790, no allowlist needed
+```
+
+## Shared state with the desktop app and the TUI
+
+- **Projects and settings**: `~/.config/AiTM` on Linux, `~/Library/Application Support/AiTM`
+  on macOS, `%APPDATA%\AiTM` on Windows. Anything created here opens in the desktop app
+  and in `aitm-tui`, and vice versa.
+- **API keys**: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, else the shared non-Electron key
+  file at `~/.config/aitm-tui/keys.json` (mode 600, `AITM_TUI_CONFIG_DIR` overrides) —
+  the same store `aitm-tui` uses. The desktop app's OS-keychain vault stays Electron-only,
+  so a key saved in the desktop app is not visible here and vice versa.
+- Both providers and both model tiers are user-selectable from the in-app **Settings**
+  screen, as on the desktop.
 
 ## Ingestion in the browser
 
 "Add folder" uploads a directory picked via the browser (filtered client-side to the
 digest's text extensions, vendored dirs skipped, 96 MB cap), "Add file" uploads
-documents/sources, and "Add repository" shallow-clones a git URL server-side. Uploads
-are materialized in a temp dir, digested, and deleted — only digests persist. Report
-export streams the Markdown/PDF as a download.
+documents/sources, and "Add repository" shallow-clones a git URL. Uploads are
+materialized in a temp dir, digested, and deleted, so only digests persist. Report export
+streams the Markdown/PDF as a download.
 
-## Deploy (Hetzner VPS)
+Note that repository ingestion clones whatever URL you give it from inside this process,
+with no host allowlist. That is the same trust model as the TUI (you are the only caller),
+but it means the feature is not safe to expose to anyone else — see the bind-address
+warning above.
 
-1. Create the GitHub OAuth app (org-owned): homepage `https://aitm.oaksecurity.io`,
-   callback `https://aitm.oaksecurity.io/auth/github/callback`.
-2. On the VPS (Ubuntu 24.04): install Node ≥ 20 and Caddy, then:
+## How it loads the core
 
-```sh
-sudo useradd -r -m -d /var/lib/aitm-web -s /usr/sbin/nologin aitm
-sudo rsync -a --exclude node_modules --exclude .git ./ /opt/aitm/
-cd /opt/aitm && sudo npm install --omit=dev --no-audit
-sudo mkdir -p /etc/aitm-web && sudo cp server/deploy/env.example /etc/aitm-web/env
-sudo chmod 600 /etc/aitm-web/env && sudo $EDITOR /etc/aitm-web/env   # fill in secrets
-sudo cp server/deploy/aitm-web.service /etc/systemd/system/
-sudo cp server/deploy/Caddyfile /etc/caddy/Caddyfile                 # adjust domain
-sudo systemctl daemon-reload && sudo systemctl enable --now aitm-web caddy
-curl -s localhost:8790/api/healthz                                   # {"ok":true}
-```
-
-The unit binds 127.0.0.1:8790; Caddy terminates TLS (`tls internal` behind Cloudflare
-"Full", or remove it for direct Let's Encrypt). SSE needs `flush_interval -1` (in the
-shipped Caddyfile). Ops: `journalctl -u aitm-web -f`; data in `/var/lib/aitm-web`.
+`src/shim.js` installs a `Module._load` hook that fakes the three Electron touchpoints
+(`electron`'s `app.getPath`, `keystore.js`, `stream.js`) before any of `src/main/*` is
+required, the same approach as `tui/src/shim.js`. See AGENT.md "Core reuse invariant".
 
 ## API surface
 
-`POST /api/rpc {channel, payload}` mirrors the desktop IPC channels (projects.*,
-keystore.*, settings.*, phases.registry, ingest.removeSource, ai.*). Extras:
-`POST /api/ingest/{files,folder,repo}`, `GET /api/report/{md,pdf}?projectId=`,
-`GET /api/stream` (SSE: `{event, label, tokens, message}`), `GET /api/healthz`,
-`/auth/{me,config,github,github/callback,logout}`.
+`POST /api/rpc {channel, payload}` mirrors the desktop IPC channels (`projects.*`,
+`keystore.*`, `settings.*`, `phases.registry`, `ingest.removeSource`, `ai.*`) minus the
+ones that need a native dialog. Extras: `POST /api/ingest/{files,folder,repo}`,
+`GET /api/report/{md,pdf}?projectId=`, `GET /api/stream` (SSE:
+`{event, label, tokens, message}`), `GET /api/healthz`.
+
+Mutating requests must carry a loopback `Origin`/`Referer` if they carry one at all, so a
+page on another origin (including a DNS-rebinding host aimed at this port) cannot drive
+the API from a browser. Requests with neither header (curl, scripts) are allowed: with no
+session cookie there is no ambient credential for a browser to be tricked into replaying.

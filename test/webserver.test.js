@@ -7,53 +7,16 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 
-// Server-wide env keys would flip keystore.status in tests; clear them.
+// The web UI shares the desktop app's data dir and the non-Electron key file; point both
+// at temp dirs, and clear the env keys that would otherwise flip keystore.status.
+const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), "aitm-web-test-"));
+const tmpKeys = fs.mkdtempSync(path.join(os.tmpdir(), "aitm-web-keys-"));
+process.env.AITM_DATA_DIR = tmpData;
+process.env.AITM_TUI_CONFIG_DIR = tmpKeys;
 delete process.env.OPENAI_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 
-const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), "aitm-web-test-"));
 const srv = (p) => import(path.join(__dirname, "..", "server", "src", p));
-
-const CFG = {
-  dataRoot: tmpData,
-  baseUrl: "http://localhost:8790",
-  clientId: "",
-  clientSecret: "",
-  orgs: ["oak-security"],
-  users: [],
-  bypass: true,
-  maxConcurrent: 2,
-  maxPerDay: 0
-};
-
-test("auth: bypass refused on non-localhost base URL", async () => {
-  const { AuthManager } = await srv("auth.js");
-  assert.throws(
-    () => new AuthManager({ ...CFG, baseUrl: "https://aitm.oaksecurity.io" }),
-    /localhost/
-  );
-  const ok = new AuthManager(CFG);
-  assert.equal(ok.currentUser({ headers: {} }).id, "local:dev");
-});
-
-test("auth: session mint/lookup and cookie parsing", async () => {
-  const { AuthManager } = await srv("auth.js");
-  const a = new AuthManager({ ...CFG, bypass: false });
-  const user = { id: "gh:42", login: "alice" };
-  const sid = a.mintSession(user);
-  assert.equal(a.currentUser({ headers: { cookie: `foo=bar; aitm_sess=${sid}` } }).login, "alice");
-  assert.equal(a.currentUser({ headers: { cookie: "aitm_sess=bogus" } }), null);
-  assert.equal(a.currentUser({ headers: {} }), null);
-});
-
-test("auth: sameOrigin accepts own origin, rejects foreign and headerless", async () => {
-  const { sameOrigin } = await srv("auth.js");
-  const exp = "https://aitm.oaksecurity.io";
-  assert.ok(sameOrigin({ headers: { origin: exp } }, exp));
-  assert.ok(!sameOrigin({ headers: { origin: "https://evil.example" } }, exp));
-  assert.ok(!sameOrigin({ headers: {} }, exp));
-  assert.ok(sameOrigin({ headers: { referer: `${exp}/somewhere` } }, exp));
-});
 
 test("ingest: sanitizeRel blocks traversal and absolute paths", async () => {
   const { sanitizeRel } = await srv("ingest.js");
@@ -63,51 +26,48 @@ test("ingest: sanitizeRel blocks traversal and absolute paths", async () => {
   }
 });
 
-test("limiter: concurrent and daily caps", async () => {
-  const { AiLimiter } = await srv("limiter.js");
-  const l = new AiLimiter({ maxConcurrent: 2, maxPerDay: 3 });
-  assert.ok(l.check("u").ok);
-  l.begin("u");
-  l.begin("u");
-  assert.ok(!l.check("u").ok, "concurrent cap");
-  l.end("u");
-  assert.ok(l.check("u").ok);
-  l.begin("u");
-  l.end("u");
-  l.end("u");
-  assert.ok(!l.check("u").ok, "daily cap after 3 begins");
-  assert.ok(l.check("other").ok, "per-user");
+test("ingest: repo URL may not start with a dash (git argv injection)", async () => {
+  const { ingestRepo } = await srv("ingest.js");
+  await assert.rejects(() => ingestRepo({ url: "--upload-pack=whoami x.git" }), /may not start/);
+  await assert.rejects(() => ingestRepo({ url: "not a url" }), /git repository URL/);
 });
 
-test("userkeys: encrypted roundtrip and env fallback", async () => {
-  const userkeys = await srv("userkeys.js");
-  userkeys.initSecret(tmpData);
-  const dir = path.join(tmpData, "users", "gh-1");
-  assert.equal(userkeys.readKey(dir, "openai"), "");
-  userkeys.setKey(dir, "openai", "sk-own-key-9999");
-  assert.equal(userkeys.readKey(dir, "openai"), "sk-own-key-9999");
-  const raw = fs.readFileSync(path.join(dir, "keys.enc"), "utf8");
-  assert.ok(!raw.includes("sk-own-key"), "key not stored in plaintext");
-  process.env.ANTHROPIC_API_KEY = "sk-ant-env-1234";
-  assert.equal(userkeys.readKey(dir, "anthropic"), "sk-ant-env-1234", "env fallback");
-  assert.equal(userkeys.status(dir).providers.anthropic.last4, "1234");
-  delete process.env.ANTHROPIC_API_KEY;
-  userkeys.clearKey(dir, "openai");
-  assert.equal(userkeys.readKey(dir, "openai"), "");
+test("host guard: loopback plus configured names, ports and brackets ignored", async () => {
+  const { hostAllowed } = await srv("server.js");
+  const none = new Set();
+  const tailnet = new Set(["devbox.example.ts.net", "100.78.168.128"]);
+  assert.ok(hostAllowed("localhost:8790", none));
+  assert.ok(hostAllowed("127.0.0.1", none));
+  assert.ok(hostAllowed("[::1]:8790", none));
+  assert.ok(!hostAllowed("evil.example", none), "unconfigured name refused");
+  assert.ok(!hostAllowed("100.78.168.128", none), "tailnet IP refused until configured");
+  assert.ok(hostAllowed("DevBox.Example.TS.net", tailnet), "case-insensitive");
+  assert.ok(hostAllowed("100.78.168.128:8790", tailnet));
+  assert.ok(!hostAllowed("", tailnet));
+  assert.ok(!hostAllowed(undefined, tailnet));
 });
 
-test("tenancy: AsyncLocalStorage contexts give users isolated stores", async () => {
-  const { runAs } = await srv("shim.js");
+test("origin guard: same allowlist, header-less clients allowed", async () => {
+  const { isAllowedOrigin } = await srv("server.js");
+  const none = new Set();
+  const tailnet = new Set(["devbox.example.ts.net"]);
+  assert.ok(isAllowedOrigin({ headers: {} }, none), "curl/scripts have no ambient credential");
+  assert.ok(isAllowedOrigin({ headers: { origin: "http://localhost:8790" } }, none));
+  assert.ok(isAllowedOrigin({ headers: { referer: "http://localhost:8790/index.html" } }, none));
+  assert.ok(!isAllowedOrigin({ headers: { origin: "https://evil.example" } }, none), "cross-site");
+  assert.ok(!isAllowedOrigin({ headers: { origin: "http://rebind.evil.example" } }, none), "DNS rebinding");
+  assert.ok(!isAllowedOrigin({ headers: { origin: "garbage" } }, none));
+  assert.ok(isAllowedOrigin({ headers: { origin: "https://devbox.example.ts.net" } }, tailnet));
+  assert.ok(!isAllowedOrigin({ headers: { origin: "https://devbox.example.ts.net" } }, none), "not allowlisted");
+});
+
+test("core: web server shares the desktop app's project store", async () => {
   const core = await srv("core.js");
-  const ctxA = { uid: "gh:1", dir: path.join(tmpData, "users", "gh-1"), emit: () => {} };
-  const ctxB = { uid: "gh:2", dir: path.join(tmpData, "users", "gh-2"), emit: () => {} };
-  const a = await runAs(ctxA, () => core.store.create({ name: "Alice's model" }));
-  await runAs(ctxB, () => core.store.create({ name: "Bob's model" }));
-  const listA = await runAs(ctxA, () => core.store.list());
-  const listB = await runAs(ctxB, () => core.store.list());
-  assert.deepEqual(listA.map((p) => p.name), ["Alice's model"]);
-  assert.deepEqual(listB.map((p) => p.name), ["Bob's model"]);
-  await assert.rejects(async () => runAs(ctxB, () => core.store.get(a.project.id)), /not found/i);
+  assert.equal(core.userDataDir(), tmpData);
+  const created = core.store.create({ name: "Shared store" });
+  assert.ok(fs.existsSync(path.join(tmpData, "projects", `${created.project.id}.json`)));
+  assert.deepEqual(core.store.list().map((p) => p.name), ["Shared store"]);
+  core.store.remove(created.project.id);
 });
 
 test("contract: web-api.js exposes every api.* method the renderer calls", () => {
@@ -138,9 +98,16 @@ test("contract: web-api.js exposes every api.* method the renderer calls", () =>
   }
 });
 
-test("e2e: bypass server serves app, rpc, ingest, stream", async () => {
+test("renderer: no hosted-build branches remain", () => {
+  const appJs = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const webApi = fs.readFileSync(path.join(__dirname, "..", "server", "web", "web-api.js"), "utf8");
+  assert.ok(!/AITM_HOSTED|\bHOSTED\b/.test(appJs), "renderer is host-agnostic (feature detection only)");
+  assert.ok(!/AITM_HOSTED|hosted\.css|\/auth\//.test(webApi), "web shim has no hosted/auth hooks");
+});
+
+test("e2e: server serves app, rpc, ingest, settings, stream", async () => {
   const { createWebServer } = await srv("server.js");
-  const server = createWebServer(CFG);
+  const server = createWebServer();
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const port = server.address().port;
   const base = `http://127.0.0.1:${port}`;
@@ -149,56 +116,70 @@ test("e2e: bypass server serves app, rpc, ingest, stream", async () => {
     const health = await fetch(`${base}/api/healthz`);
     assert.deepEqual(await health.json(), { ok: true });
 
+    // No login gate: "/" serves the app directly.
     const home = await fetch(base);
+    assert.equal(home.status, 200);
     const html = await home.text();
     assert.ok(html.includes('src="web-api.js"'), "web api shim injected");
     assert.ok(html.includes('src="app.js"'), "renderer app served");
+    assert.ok(html.indexOf('src="web-api.js"') < html.indexOf('src="app.js"'), "shim runs before app.js");
+    assert.ok(!html.includes("hosted.css"), "no hosted restyle");
     assert.ok(home.headers.get("content-security-policy"), "CSP header set");
-    // Hosted restyle: hosted.css linked after styles.css and served.
-    assert.ok(html.indexOf("styles.css") < html.indexOf("hosted.css"), "hosted.css after styles.css");
-    const hostedCss = await fetch(`${base}/hosted.css`);
-    assert.equal(hostedCss.status, 200);
-    assert.match(hostedCss.headers.get("content-type"), /text\/css/);
 
-    const shim = await fetch(`${base}/web-api.js`);
-    assert.equal(shim.status, 200);
-    const css = await fetch(`${base}/styles.css`);
-    assert.equal(css.status, 200);
+    assert.equal((await fetch(`${base}/web-api.js`)).status, 200);
+    assert.equal((await fetch(`${base}/styles.css`)).status, 200);
+    assert.equal((await fetch(`${base}/hosted.css`)).status, 404, "restyle is gone");
 
-    const rpc = (channel, payload) =>
+    const rpc = (channel, payload, headers = {}) =>
       fetch(`${base}/api/rpc`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...headers },
         body: JSON.stringify({ channel, payload })
       }).then(async (r) => ({ status: r.status, body: await r.json() }));
 
     const created = await rpc("projects.create", { name: "Web e2e" });
     assert.equal(created.status, 200);
     const pid = created.body.result.project.id;
-    const list = await rpc("projects.list", {});
-    assert.equal(list.body.result.length, 1);
+    assert.equal((await rpc("projects.list", {})).body.result.length, 1);
+    assert.equal((await rpc("nope.nope", {})).status, 404);
 
-    const unknown = await rpc("nope.nope", {});
-    assert.equal(unknown.status, 404);
+    // Cross-origin mutating requests are refused; loopback ones pass.
+    const foreign = await rpc("projects.create", { name: "CSRF" }, { origin: "https://evil.example" });
+    assert.equal(foreign.status, 403);
+    assert.equal((await rpc("projects.list", {})).body.result.length, 1, "nothing created");
 
-    const ks = await rpc("keystore.status", {});
-    assert.equal(ks.body.result.providers.openai.configured, false);
+    // A rebound name resolving to this address is refused on the Host header alone.
+    // (fetch() forbids setting Host, so this one goes through the raw client.)
+    const rebound = await new Promise((resolve, reject) => {
+      const r = http.request(
+        { host: "127.0.0.1", port, path: "/", method: "GET", headers: { host: "rebind.evil.example" } },
+        (res) => {
+          let body = "";
+          res.on("data", (c) => (body += c));
+          res.on("end", () => resolve({ status: res.statusCode, body }));
+        }
+      );
+      r.on("error", reject);
+      r.end();
+    });
+    assert.equal(rebound.status, 403);
+    assert.equal(JSON.parse(rebound.body).error.code, "bad_host");
 
-    // keystore.set must resolve to the per-user shim (not the real Electron keystore).
-    // Hosted mode is OpenAI-only: settings are forced regardless of what is requested.
-    const sget = await rpc("settings.get", {});
-    assert.equal(sget.body.result.provider, "openai");
-    const sset = await rpc("settings.set", { provider: "anthropic", modelFast: "claude-x" });
-    assert.equal(sset.body.result.provider, "openai", "provider cannot be changed");
-    assert.equal(sset.body.result.modelFast, "gpt-5-mini", "models forced");
+    // Settings are real again (no forced provider/model), backed by settings.json.
+    const sset = await rpc("settings.set", { provider: "anthropic", modelFast: "claude-sonnet-5" });
+    assert.equal(sset.body.result.provider, "anthropic", "provider is user-controlled");
+    assert.equal(sset.body.result.modelFast, "claude-sonnet-5");
+    assert.equal((await rpc("settings.get", {})).body.result.provider, "anthropic");
+    await rpc("settings.set", { provider: "openai" });
 
+    // Keystore resolves to the shared non-Electron key file, not the Electron vault.
+    assert.equal((await rpc("keystore.status", {})).body.result.providers.openai.configured, false);
     const set = await rpc("keystore.set", { provider: "openai", key: "sk-e2e-wxyz" });
-    assert.equal(set.status, 200);
     assert.equal(set.body.result.providers.openai.configured, true);
     assert.equal(set.body.result.providers.openai.last4, "wxyz");
-    assert.equal(set.body.result.encryptionAvailable, true);
-    const enc = fs.readFileSync(path.join(tmpData, "users", "local-dev", "keys.enc"), "utf8");
-    assert.ok(!enc.includes("sk-e2e"), "stored key is ciphertext");
+    assert.ok(fs.existsSync(path.join(tmpKeys, "keys.json")), "key file is the TUI's");
+    assert.equal(fs.statSync(path.join(tmpKeys, "keys.json")).mode & 0o777, 0o600);
+    await rpc("keystore.clear", { provider: "openai" });
 
     const up = await fetch(`${base}/api/ingest/files`, {
       method: "POST",
@@ -217,11 +198,8 @@ test("e2e: bypass server serves app, rpc, ingest, stream", async () => {
     });
     assert.equal(evil.status, 400, "traversal rejected");
 
-    const md = await fetch(`${base}/api/report/md?projectId=${pid}`);
-    assert.equal(md.status, 400, "empty report rejected");
-
-    const traversal = await fetch(`${base}/..%2f..%2fpackage.json`);
-    assert.notEqual(traversal.status, 200, "static traversal blocked");
+    assert.equal((await fetch(`${base}/api/report/md?projectId=${pid}`)).status, 400, "empty report rejected");
+    assert.notEqual((await fetch(`${base}/..%2f..%2fpackage.json`)).status, 200, "static traversal blocked");
 
     const sse = await new Promise((resolve, reject) => {
       const req = http.get(`${base}/api/stream`, (res) => {

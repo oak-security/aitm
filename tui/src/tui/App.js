@@ -15,7 +15,7 @@ import { ReportViewer } from "./report.js";
 
 const MODEL_DEFAULTS = {
   openai: { fast: "gpt-5-mini", deep: "gpt-5.5" },
-  anthropic: { fast: "claude-sonnet-5", deep: "claude-opus-4-8" }
+  anthropic: { fast: "claude-sonnet-5", deep: "claude-opus-5" }
 };
 
 const STAGE_ICONS = { pending: "○", active: "◐", done: "●", skipped: "◌", error: "✗" };

@@ -89,6 +89,9 @@ export async function ingestFolder(payload) {
 export async function ingestRepo(payload) {
   const url = String((payload && payload.url) || "").trim();
   if (!url || !isRepoUrl(url)) throw appError("bad_input", "Not a git repository URL.");
+  // isRepoUrl accepts anything ending in .git, so reject a leading dash before the URL
+  // reaches git's argv and is parsed as an option (e.g. --upload-pack=...x.git).
+  if (url.startsWith("-")) throw appError("bad_input", "Repository URL may not start with '-'.");
   const clone = cloneRepo(url);
   try {
     const source = core.digest.buildFolderDigest(clone);
