@@ -37,9 +37,12 @@ Product name: **AiTM** — "AI Threat Modeller" (also the working-directory name
 - **Renderer**: vanilla HTML/CSS/JS (wrapped in an IIFE so top-level consts don't
   collide with the non-configurable `window.api` global). No framework. Calls
   `window.api.*`; a persistent AI status bar consumes streamed progress events.
-- **Packaging**: `electron-builder` (config in `electron-builder.js`). macOS notarized
-  (Developer ID), Windows NSIS, Linux AppImage + deb. CI release on `v*` tags. Updates
-  via `electron-updater` from GitHub Releases.
+- **Packaging**: `electron-builder` (config in `electron-builder.js`). Only macOS is
+  shipped: notarized (Developer ID) `.dmg`/`.zip`, built and published by CI on `v*`
+  tags. The Windows NSIS and Linux AppImage/deb targets stay configured for local builds
+  but are unsigned, untested, and never published — the README documents them as
+  build-from-source with an "untested" warning. Updates via `electron-updater` from
+  GitHub Releases.
 
 There is intentionally **no heavy frontend build step**. Keep the renderer simple.
 

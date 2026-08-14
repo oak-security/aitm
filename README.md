@@ -17,13 +17,15 @@ Local-first application for AI-assisted threat modeling using the
 
 ## Download & install
 
-Get the latest installers from the **[Releases page](https://github.com/oak-security/aitm/releases/latest)**.
-(This is a private repository — sign in to GitHub with an account in the `oak-security`
-org to see them.)
-
-You also need your **own AI API key** (OpenAI or Anthropic) — see "First run" below.
+**macOS (Apple Silicon) is the only platform with a prebuilt download.** Windows and
+Linux can be built from source, but those builds are unsigned and untested — see
+[Windows & Linux (build from source)](#windows--linux-build-from-source).
 
 ### macOS (Apple Silicon)
+
+Get the installer from the **[Releases page](https://github.com/oak-security/aitm/releases/latest)**.
+(This is a private repository — sign in to GitHub with an account in the `oak-security`
+org to see it.)
 
 1. Download **`AiTM-<version>-arm64.dmg`**.
 2. Open the `.dmg` and drag **AiTM** into **Applications**.
@@ -32,26 +34,45 @@ You also need your **own AI API key** (OpenAI or Anthropic) — see "First run" 
 The macOS build is signed and notarized, so it opens with no Gatekeeper warning.
 Note: **Apple Silicon (M-series) only** — Intel Macs aren't supported yet.
 
-### Windows
+You also need your **own AI API key** (OpenAI or Anthropic) — see "First run" below.
 
-1. Download **`AiTM-Setup-<version>.exe`** and run it.
-2. The app isn't code-signed yet, so SmartScreen shows **"Windows protected your PC"**.
-   Click **More info → Run anyway**.
-3. Complete the installer and launch AiTM.
+### Windows & Linux (build from source)
 
-### Linux
+> **Untested.** The Windows and Linux packages are not code-signed and have not been
+> tested on either platform. They are not published as release downloads. Build them
+> yourself only if you are willing to debug an unsupported build; the app itself is
+> plain Electron, so nothing is known to be broken, but nothing has been verified
+> either. Bug reports are welcome, fixes are best-effort.
 
-- **AppImage** (any distro):
+Prerequisites: Node.js 20+, Git, and repo access. Build on the target platform —
+electron-builder does not cross-compile these targets reliably.
+
+```sh
+git clone https://github.com/oak-security/aitm.git
+cd aitm
+npm ci
+npm run dist:win     # Windows: NSIS installer -> dist/AiTM-Setup-<version>.exe
+npm run dist:linux   # Linux:   dist/AiTM-<version>.AppImage and dist/aitm_<version>_amd64.deb
+```
+
+Then install the artifact from `dist/`:
+
+- **Windows** — run `AiTM-Setup-<version>.exe`. Because the build is unsigned,
+  SmartScreen shows **"Windows protected your PC"**; click **More info → Run anyway**.
+- **Linux, AppImage** (any distro):
   ```sh
   chmod +x AiTM-<version>.AppImage
   ./AiTM-<version>.AppImage
   ```
-- **Debian / Ubuntu** (`.deb`):
+- **Linux, Debian / Ubuntu** (`.deb`):
   ```sh
   sudo apt install ./aitm_<version>_amd64.deb
   ```
 
-(Both are x86-64 / amd64.)
+If you would rather not package at all, both non-macOS platforms can run the app
+straight from the checkout with `npm start`, or use the
+[terminal UI](#terminal-ui-aitm-tui) / [local web UI](#local-web-ui-aitm-web), which are
+plain Node processes with no packaging step.
 
 ### First run
 
@@ -67,7 +88,8 @@ folder" in the sidebar).
 ### Updates
 
 Auto-update is not active yet, so check the [Releases page](https://github.com/oak-security/aitm/releases/latest)
-for new versions and install over the top.
+for new versions and install over the top. Windows and Linux builds get no update feed
+at all — rebuild from an updated checkout.
 
 ## Usage guide
 
@@ -182,20 +204,24 @@ npm test           # unit tests
 
 ```sh
 npm run dist        # current platform
-npm run dist:mac    # macOS .dmg + .zip
-npm run dist:win    # Windows NSIS
-npm run dist:linux  # AppImage + .deb
+npm run dist:mac    # macOS .dmg + .zip        (shipped)
+npm run dist:win    # Windows NSIS             (unsigned, untested)
+npm run dist:linux  # AppImage + .deb          (unsigned, untested)
 ```
 
 macOS signing & notarization auto-enable when `APPLE_TEAM_ID` (and notarization
 credentials) are present in the environment — see [electron-builder.js](electron-builder.js).
 Plain `npm run dist` produces an unsigned local build.
 
+The Windows and Linux targets remain configured so a local build works, but they are not
+signed, not tested, and not published to releases.
+
 ## Release (CI)
 
 Pushing a `v*` tag runs [.github/workflows/release.yml](.github/workflows/release.yml):
-it builds the macOS/Windows/Linux matrix and publishes the installers to a (draft)
-GitHub Release. Set these repo secrets for a signed + notarized macOS build (all
+it builds the **macOS** installer on a `macos-latest` runner and publishes it to a
+GitHub Release. Windows and Linux are deliberately not built in CI (unsigned and
+untested — see above). Set these repo secrets for a signed + notarized macOS build (all
 optional; without them the mac build is unsigned):
 
 | Secret | Meaning |
@@ -222,7 +248,8 @@ auto-update is a no-op until one of:
 - a public update feed is used instead (point `publish` in `electron-builder.js` at a
   `generic` provider — e.g. an R2/S3 bucket — and upload the `latest*.yml` + installers).
 
-Until then, distribute by handing out the installer; the updater fails quietly.
+Until then, distribute by handing out the installer; the updater fails quietly. Only the
+macOS build has a feed (`latest-mac.yml`) at all.
 
 ## Documentation
 

@@ -1,7 +1,7 @@
 {
   "name": "aitm",
   "productName": "AiTM",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "AiTM — AI Threat Modeller. Local-first desktop threat modeling using the TRACE framework.",
   "license": "UNLICENSED",
@@ -18,7 +18,7 @@
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
-    "publish:ci": "electron-builder --publish always"
+    "publish:ci": "electron-builder --mac --publish always"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

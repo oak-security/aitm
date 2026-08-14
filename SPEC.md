@@ -29,8 +29,9 @@ Product name: **AiTM** — "AI Threat Modeller". Bundle identifier `io.oaksecuri
 ## 3. Scope and non-goals
 
 In scope, **as built**:
-- Electron desktop app for macOS, Windows, Linux, plus a terminal and a local web
-  frontend over the same core (section 5).
+- Electron desktop app, shipped for macOS (Windows and Linux are buildable from source
+  but unsigned and untested — section 13), plus a terminal and a local web frontend over
+  the same core (section 5).
 - Oak Security branding and design system.
 - User-provided **OpenAI and Anthropic** API keys, one per provider, encrypted
   on-device (Electron; see section 6 for the non-Electron frontends).
@@ -301,8 +302,13 @@ for the app itself:
 
 ## 13. Packaging & distribution
 
-- `electron-builder`: macOS `.dmg`/`.zip` (Developer ID + notarization), Windows
-  `.exe`/`.msi` (Authenticode), Linux `AppImage` + `.deb`.
+- `electron-builder`, **macOS only as a shipped artifact**: `.dmg`/`.zip` signed with a
+  Developer ID and notarized, built and published by CI on a `v*` tag.
+- Windows (`nsis`) and Linux (`AppImage`, `deb`) targets remain in the config so a local
+  build works, but they are unsigned, untested, and excluded from releases. They are
+  documented in the README as build-from-source instructions carrying an explicit
+  "untested" warning. Shipping them requires Authenticode signing plus actual testing on
+  each platform first.
 - Signing/notarization is required for macOS Gatekeeper and to avoid SmartScreen
   warnings on Windows; flag credential setup as a prerequisite before first public
   build.
@@ -315,6 +321,8 @@ for the app itself:
 - Auto-update channel: `electron-updater` points at GitHub Releases, which is a no-op
   while the repo is private. Make the repo (or a mirror) public, or point `publish` at a
   generic feed.
+- Whether to ship Windows/Linux binaries at all, which requires an Authenticode
+  certificate and a tester on each platform.
 - Private-repo (PAT) ingestion priority.
 - Whether to carry the SSRF guards into git-URL ingestion (section 11) or keep that
   feature explicitly local-operator-only.

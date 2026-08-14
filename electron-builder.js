@@ -44,6 +44,10 @@ module.exports = {
   dmg: {
     title: "AiTM ${version}"
   },
+  // Windows and Linux are NOT part of a release: neither is signed and neither has been
+  // tested, so CI publishes macOS only and the README documents these as build-from-
+  // source targets (`npm run dist:win` / `npm run dist:linux`). The configs stay here so
+  // that a local build works, and are unsupported until someone signs and tests them.
   win: {
     target: ["nsis"],
     icon: "build/icon.png"

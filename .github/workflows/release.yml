@@ -1,10 +1,14 @@
 name: release
 
-# Build signed installers for macOS, Windows, and Linux on a version tag and publish
-# them to a GitHub Release (which is also the electron-updater feed).
+# Build the signed + notarized macOS installer on a version tag and publish it to a
+# GitHub Release (which is also the electron-updater feed).
 #
-# Required repo secrets for a signed + notarized macOS build (all optional — without
-# them the mac build is produced unsigned):
+# macOS is the only platform we ship binaries for: the Windows and Linux builds are
+# unsigned and untested, so they are documented as build-from-source instructions in
+# the README instead of being published here.
+#
+# Required repo secrets for a signed + notarized build (all optional — without them the
+# build is produced unsigned):
 #   MAC_CSC_LINK              base64 of the Developer ID Application .p12
 #   MAC_CSC_KEY_PASSWORD      password for that .p12
 #   APPLE_ID                  Apple ID email
@@ -15,24 +19,13 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      os:
-        description: "Which runner to build (all | macos-latest | windows-latest | ubuntu-latest)"
-        default: "all"
-        type: string
 
 permissions:
   contents: write
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Pin Windows to 2022: electron-builder 25 silently fails on the new
-        # windows-latest (Server 2025 / VS2026) image.
-        os: [macos-latest, windows-2022, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -44,21 +37,15 @@ jobs:
       - run: npm ci
 
       - name: Build and publish
-        # Skip on a manual dispatch that targets a different OS (matrix is available in
-        # step-level if, unlike job-level). Tag pushes always build all three.
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.os == 'all' || inputs.os == matrix.os }}
         shell: bash
         run: |
           set -x
           node --version
-          node node_modules/electron-builder/cli.js --publish always
+          node node_modules/electron-builder/cli.js --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS signing + notarization ONLY on the mac runner. Passing CSC_LINK (a
-          # macOS Developer ID .p12) to the Windows runner makes electron-builder try to
-          # use it for Windows signing and abort, so these must be empty off-mac.
-          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
-          APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
