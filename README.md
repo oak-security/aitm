@@ -2,15 +2,18 @@
   <img src="docs/banner.png" alt="AiTM — AI Threat Modeller" width="820">
 </p>
 
-Local-first desktop application for AI-assisted threat modeling using the
-[TRACE](https://github.com/oak-security/TRACE) framework. Built with Electron.
+Local-first application for AI-assisted threat modeling using the
+[TRACE](https://github.com/oak-security/TRACE) framework.
 
-- **Local-first**: projects and your encrypted API key live on your machine; nothing
-  is uploaded except the AI calls you trigger.
-- **Bring your own key**: OpenAI or Anthropic, stored encrypted via the OS keychain.
+- **Local-first**: projects and your API key live on your machine; nothing is uploaded
+  except the AI calls you trigger. No accounts, no backend, no telemetry.
+- **Bring your own key**: OpenAI or Anthropic, one per provider.
 - **TRACE phases**: Scope & Sources → TRACE model → STRIDE → Attack trees →
   Collusion/Coordination → Report. Optional phases toggle per project.
 - **Generic**: domain profiles span generic IT, web, cloud, mobile, ICS/OT, and Web3.
+- **Three frontends over one core**, all single-user against the same project store:
+  the [Electron desktop app](#download--install) (below), a
+  [terminal UI](#terminal-ui-aitm-tui), and a [local web UI](#local-web-ui-aitm-web).
 
 ## Download & install
 
@@ -132,9 +135,9 @@ use.
 ## Terminal UI (aitm-tui)
 
 A keyboard-driven TUI frontend that runs the same pipeline against the same project
-store — no Electron window needed. It adds two things the desktop app doesn't have yet:
-git/GitHub URL ingestion (shallow clone) and an AI-applied scope hint that reduces the
-ingested file set ("only the docs directory").
+store, no Electron window needed. It adds git/GitHub URL ingestion (shallow clone, also
+in the web UI below, not in the desktop app) and an AI-applied scope hint that reduces
+the ingested file set ("only the docs directory"), which is unique to the TUI.
 
 ```sh
 npm install && (cd tui && npm install)   # once
@@ -225,12 +228,25 @@ Until then, distribute by handing out the installer; the updater fails quietly.
 
 - [AGENT.md](AGENT.md) — build/run conventions and the security/branding invariants.
 - [SPEC.md](SPEC.md) — product and technical specification.
+- [tui/README.md](tui/README.md) — the terminal frontend.
+- [server/README.md](server/README.md) — the local web frontend.
 
 ## Data location
 
-`~/Library/Application Support/AiTM` (macOS), `%APPDATA%\AiTM` (Windows),
-`~/.config/AiTM` (Linux): `projects/*.json`, `settings.json`, and the encrypted
-`keystore.bin`. The in-app sidebar has a "Reveal data folder" link.
+All three frontends share one data directory: `~/Library/Application Support/AiTM`
+(macOS), `%APPDATA%\AiTM` (Windows), `~/.config/AiTM` (Linux), holding `projects/*.json`
+and `settings.json`. A project created in any of them opens in the other two.
+`AITM_DATA_DIR` overrides it for the TUI and the web UI. The desktop app's sidebar has a
+"Reveal data folder" link.
+
+API keys are the exception, because the OS keychain is only reachable from Electron:
+
+| Frontend | Key storage |
+| --- | --- |
+| Desktop | `keystore.bin` in the data dir, encrypted via the OS keychain |
+| TUI, web | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, else `~/.config/aitm-tui/keys.json` (mode 600) |
+
+So a key entered in the desktop app is not visible to the other two, and vice versa.
 
 ## License
 

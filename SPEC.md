@@ -1,53 +1,56 @@
 # Specification — AiTM · AI Threat Modeller (Oak Security edition)
 
-Status: draft v0.1 · Owner: Stefan Beyer · Date: 2026-06-18
+Status: v0.1, implemented · Owner: Stefan Beyer · Drafted 2026-06-18, revised 2026-08-14
+
+Sections marked **(as built)** describe shipped behaviour and are the ones to trust when
+they disagree with the surrounding design rationale, which is kept for context.
 
 ## 1. Purpose
 
-A local-first desktop application that runs the **TRACE** threat-modeling framework
-with heavy AI assistance. It ports the existing web app
-(`/Users/stefanbeyer/Documents/bot-runs/thread-model-dashboard`) to a packaged desktop
-app, **Oak Security**-branded, generalized beyond Web3, with the user supplying their
-own AI API key. (Originally prototyped with Mostly Harmless branding; now Oak.)
+A local-first application that runs the **TRACE** threat-modeling framework with heavy
+AI assistance, **Oak Security**-branded, generalized beyond Web3, with the user
+supplying their own AI API key. It began as a port of an internal Node/Express + vanilla-JS
+web dashboard to a packaged desktop app. (Originally prototyped with Mostly Harmless
+branding; now Oak.)
 
-Product name: **AiTM** — "AI Threat Modeller". Bundle identifier and display name use
-this; finalize the reverse-DNS bundle id before first build.
+Product name: **AiTM** — "AI Threat Modeller". Bundle identifier `io.oaksecurity.aitm`.
 
 ## 2. Users and use cases
 
 - Security engineers and consultants running design-level threat models offline or on
   sensitive material that should not transit a shared backend.
 - Single-user, single-machine. No authentication, no accounts, no org gating, no
-  multi-tenant server. The app trusts the local user.
+  multi-tenant server. The app trusts the local user. **This binds all three frontends**
+  (see section 5): a hosted multi-tenant build was tried and removed.
 - Primary flow: create project → set scope → ingest sources → AI-draft the TRACE
   model → review/correct → STRIDE → (optional) attack trees → (optional) coordination
   analysis → generate report → export PDF/JSON.
 
 ## 3. Scope and non-goals
 
-In scope (v1):
-- Electron desktop app for macOS, Windows, Linux.
+In scope, **as built**:
+- Electron desktop app for macOS, Windows, Linux, plus a terminal and a local web
+  frontend over the same core (section 5).
 - Oak Security branding and design system.
-- User-provided OpenAI API key, encrypted on-device. Provider abstraction for later.
+- User-provided **OpenAI and Anthropic** API keys, one per provider, encrypted
+  on-device (Electron; see section 6 for the non-Electron frontends).
 - Generic threat modeling with domain profiles (Web3 retained as one profile).
 - Full TRACE phase workflow with per-project optional phases.
 - Local file-based project store; JSON import/export; PDF report export.
-- Source ingestion: **local only** — a local source/project folder and/or individual
-  local files (architecture/spec docs: md/txt/docx/pdf; source files). A project may
-  hold **several sources** (e.g. a code folder plus a docs folder/files), which
-  complement each other.
+- Source ingestion: a local source/project folder and/or individual local files
+  (architecture/spec docs: md/txt/docx/pdf; source files). A project may hold
+  **several sources** (e.g. a code folder plus a docs folder/files), which complement
+  each other. The desktop app is local-only; the TUI and web frontends additionally
+  shallow-clone a git URL (see the caveat in section 11).
+- Streamed (SSE) provider calls with cancel; CI release workflow; electron-updater
+  wired (a no-op while the repo is private, see README).
 
-Implemented since the original draft: OpenAI **and** Anthropic providers ship, calls
-stream (SSE) with cancel, keys are stored per provider, and a CI release workflow +
-electron-updater are wired.
-
-Non-goals (v1):
-- Remote ingestion: GitHub-repo clone and repo-ZIP upload (deferred; design hooks and
-  the existing hardening from the source app are kept for v1.1).
-- Private-repo PAT ingestion (with GitHub ingestion, v1.1).
-- Cloud sync, collaboration, or a hosted backend.
+Non-goals:
+- Repo-ZIP upload, and private-repo PAT ingestion.
+- Cloud sync, collaboration, multi-user access, or a hosted backend. A hosted
+  multi-tenant web build existed briefly and was removed; do not reintroduce one
+  without revisiting section 2.
 - Code audit / formal verification. This is design-level analysis only.
-- Auto-update infrastructure (optional, can land post-v1).
 
 ## 4. Framework decision: Electron
 
@@ -68,6 +71,25 @@ hard requirement later, the provider/ingestion modules are isolated enough to po
 a Tauri sidecar without touching the renderer.
 
 ## 5. Architecture
+
+**(as built)** Three frontends share one core. `src/main/*` is the whole application
+outside the UI: project store, phase registry, ingestion, provider adapters,
+orchestration, report rendering. It is written for Electron's main process but stays
+decoupled enough that the other two load it outside Electron by faking exactly three
+touchpoints (`electron`'s `app.getPath`, `keystore.js`, `stream.js`) through a
+`Module._load` hook. See AGENT.md "Core reuse invariant".
+
+| Frontend | Entry | UI | Notes |
+| --- | --- | --- | --- |
+| Desktop | `src/main/index.js` | Electron + `src/renderer` | Native dialogs, OS-keychain vault, auto-update |
+| Terminal | `tui/src/aitm-tui.js` | Ink/React | Adds git-URL ingestion and an AI scope filter |
+| Local web | `server/src/main.js` | the same `src/renderer`, served | Browser pickers, loopback-bound, no auth |
+
+All three are single-user and read the same project store and `settings.json`. Keys
+differ: Electron uses the OS keychain, the other two share `~/.config/aitm-tui/keys.json`
+or the provider env vars.
+
+The diagram below is the desktop process model.
 
 ```
 ┌─────────────────────────── Electron app ───────────────────────────┐
@@ -180,7 +202,8 @@ re-IDs on import collision, refuses malformed files).
   "phasesEnabled": ["scope","ingest","trace-model","stride","attack-trees","report"],
   "classification": { "profile", "confidence", "rationale", "evidence", "userOverride" },
   "sources": [ { "id","type","ref","hash","summary","excerpts","warnings" } ],
-  // type: "folder" | "files"  (v1.1: "github" | "zip"); ref = absolute local path(s)
+  // type: "folder" | "files"; ref = absolute local path(s), an "upload:<name>" marker
+  // for browser uploads, or the git URL for a cloned repo (which digests as "folder")
   "traceModel": {
     "protectedAssets", "threatActors", "roles", "invariants",
     "components", "trustBoundaries", "valueFlows", "edges", "openQuestions"
@@ -219,7 +242,10 @@ settings.get() / settings.set(patch)        // provider, modelFast, modelDeep, p
 ingest.folder()  -> { canceled } | { source }            // native dir picker
 ingest.files()   -> { canceled } | { sources, errors }   // native file picker
 ingest.removeSource(projectId, sourceId) -> project
-// v1 is local-only; ingest.github / ingest.upload(zip) are deferred to v1.1.
+// The desktop bridge is local-only. The web frontend exposes the same surface over
+// HTTP (server/src/rpc.js) with browser pickers behind ingest.folder/files, and adds
+// ingest.repo(url) for a git clone; the renderer feature-detects it. ZIP upload is
+// not implemented in any frontend.
 
 ai.classify(projectId) / traceModel / stride / coordination / report  -> project
 ai.attackTree(projectId, { threatIds }) -> project   // one tree per new threat, accumulative
@@ -241,13 +267,20 @@ for the app itself:
   sandbox, strict CSP, no Node in renderer, IPC input validation.
 - **Key exfiltration** → key never crosses the bridge in plaintext, never in exports
   or logs; `safeStorage` at rest; redacted hints only.
-- **Local folder/file ingestion** → user-selected via native dialog (no network/SSRF
-  surface in v1); confine the walk to the chosen root, do not follow symlinks escaping
-  it, honor `.gitignore`, skip binaries, allowlist doc types (md/txt/docx/pdf), reject
-  macro-enabled Office, and apply byte/file-count caps.
-- **Deferred (v1.1 remote ingestion)** → SSRF/IP allowlisting + DNS re-resolution for
-  git clone and zip-slip/symlink/ratio/count/size guards for ZIP. Code retained from
-  the source app, not wired in v1.
+- **Local folder/file ingestion** → user-selected via native dialog or browser picker;
+  confine the walk to the chosen root, do not follow symlinks escaping it, honor
+  `.gitignore`, skip binaries, allowlist doc types (md/txt/docx/pdf), reject
+  macro-enabled Office, and apply byte/file-count caps. Browser uploads are additionally
+  path-sanitized (no absolute paths, no `..`, confinement re-checked after join) and
+  materialized in a temp dir that is deleted after digesting.
+- **Git-URL ingestion (TUI and web only)** → shallow clone, digest, delete. **The
+  source app's SSRF/IP-allowlisting and DNS re-resolution guards were not carried
+  over**, so the process will issue git requests to any host the caller names,
+  including internal addresses. Accepted because the caller is the local operator in
+  both frontends; it is the specific reason neither may be exposed to anyone else. Add
+  those guards before any multi-user or network-reachable use. A leading `-` is
+  rejected and `--` precedes the URL, so the argument cannot become a git option.
+- **Deferred (ZIP upload)** → zip-slip/symlink/ratio/count/size guards, not wired.
 - **Supply chain** → pin dependencies, audit on CI, minimize native modules, verify
   update signatures if auto-update is enabled.
 - **Data exfiltration to AI provider** → explicit privacy notice; egress restricted to
@@ -278,7 +311,12 @@ for the app itself:
 
 ## 14. Open questions
 
-- Final product name and bundle identifier.
-- Whether to ship optional local/offline inference in v1.1 for sensitive engagements.
-- Auto-update channel (defer unless required for distribution).
+- Whether to ship optional local/offline inference for sensitive engagements.
+- Auto-update channel: `electron-updater` points at GitHub Releases, which is a no-op
+  while the repo is private. Make the repo (or a mirror) public, or point `publish` at a
+  generic feed.
 - Private-repo (PAT) ingestion priority.
+- Whether to carry the SSRF guards into git-URL ingestion (section 11) or keep that
+  feature explicitly local-operator-only.
+- Whether to fold the git clone helper and the non-Electron key store into `src/main/`
+  so `server/` stops importing from `tui/`.

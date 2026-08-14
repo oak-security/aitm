@@ -6,14 +6,16 @@ commands, and the non-negotiable security/branding invariants.
 
 ## What this project is
 
-A cross-platform **desktop** application for AI-assisted threat modeling using the
-**TRACE** framework (https://github.com/oak-security/TRACE). It is a desktop port of
-the web app at `/Users/stefanbeyer/Documents/bot-runs/thread-model-dashboard`
-(Node/Express + vanilla-JS, Oak-branded, OpenAI-backed).
+Cross-platform AI-assisted threat modeling using the **TRACE** framework
+(https://github.com/oak-security/TRACE). Started as a desktop port of an internal
+Node/Express + vanilla-JS web dashboard (Oak-branded, OpenAI-backed); it now ships
+**three frontends over one core** — Electron desktop, a terminal UI (`tui/`), and a
+local web server (`server/`) — all single-user against the same project store.
 
 Differences from the source web app:
 
-- **Electron desktop app**, not a hosted web server. No GitHub OAuth org gating.
+- **Local-first**, not a hosted web server. No accounts, no OAuth, no org gating, no
+  multi-tenancy, in any frontend (SPEC.md section 2).
 - **Oak Security branding** (BDO Grotesk, gold→magenta). The AiTM node-graph mark is
   the app logo; the Oak logo appears as a "by Oak Security" lockup. See "Branding".
 - **User-supplied AI API keys**, one per provider, stored encrypted on-device (not a
@@ -58,7 +60,7 @@ AiTM/
       ipc/            # IPC handlers; validates all input
       keystore.js     # safeStorage-backed per-provider key vault
       projects/       # file-based store + schema/migrations (store.resetAnalysis)
-      ingest/         # folder.js, files.js, digest.js (deferred github/zip for v1.1)
+      ingest/         # index.js (native pickers), digest.js (walker + doc extraction)
       ai/             # index (registry), openai-responses, anthropic, sse, prompts,
                       #   schemas, orchestrate (streaming, cancel, effort)
       report/         # render.js (md->html) + pdf.js (Oak-branded)
@@ -73,6 +75,8 @@ AiTM/
   test/
     core.test.js      # schema migration, phase seeding, render, ingestion guards
     tui.test.js       # TUI shim, target resolution, pipeline helpers
+    webserver.test.js # host/origin guards, upload sanitizing, preload contract, e2e
+    adapters.test.js  # Anthropic refusal/truncation/effort, model-table drift guard
   tui/                # aitm-tui: Ink/React terminal frontend (own package.json, ESM,
                       #   no build step). Loads src/main/* outside Electron via a
                       #   Module._load shim (tui/src/shim.js) that fakes `electron`
@@ -109,9 +113,12 @@ that way. `orchestrate.cancelAll(scope)` still accepts an optional scope (via
 invent ad-hoc commands.)
 
 - `npm run dev` — launch Electron against the local renderer with devtools.
-- `npm run check` — `node --check` over main/preload + lint.
-- `npm test` — unit/integration tests (ingestion guards, schema migration, key
-  non-persistence, phase gating).
+- `npm run tui` — the terminal frontend. `npm run web` — the local web frontend.
+- `npm run check` — `node --check` over the main/preload/renderer and server entry
+  points. There is no linter; keep it a syntax gate.
+- `npm test` — `node --test` over `test/**/*.test.js` (ingestion and upload guards,
+  schema migration, phase gating, shim loading, provider-adapter behaviour, the web
+  host/origin guards, and an e2e pass over the web server).
 - `npm run dist` — build signed/notarized installers via electron-builder.
 
 Always run `npm run check` and `npm test` before claiming a change is done.
@@ -128,22 +135,34 @@ Treat the **renderer as untrusted**. The main process is the trust boundary.
 3. **Validate every IPC payload** in the main process (type, size, shape, path
    confinement). Never pass renderer strings to `child_process` or `fs` without
    validation.
-4. **API keys** (one per provider): stored only via `safeStorage` (OS keychain/DPAPI/
-   libsecret) as an encrypted `{ openai, anthropic }` map in `userData/keystore.bin`.
-   Check `safeStorage.isEncryptionAvailable()`; if false, warn and do not silently
-   downgrade. Keys must never appear in: project files, JSON exports, reports, logs,
-   crash dumps, or IPC responses to the renderer. The renderer only sees per-provider
-   `{ configured, last4 }` (and, in-session, a verified flag from a successful call).
-5. **Ingestion hardening** — v1 is local-only (folder and/or files); a project may
-   hold several sources that complement each other:
-   - Local folder: user-picked via native dialog; confine the walk to the chosen
-     root, never follow symlinks escaping it, honor `.gitignore`, skip binaries,
-     apply byte/file-count caps. Reuses the source app's digest walker minus clone.
+4. **API keys** (one per provider). In Electron: stored only via `safeStorage`
+   (OS keychain/DPAPI/libsecret) as an encrypted `{ openai, anthropic }` map in
+   `userData/keystore.bin`. Check `safeStorage.isEncryptionAvailable()`; if false, warn
+   and do not silently downgrade. Outside Electron `safeStorage` does not exist, so the
+   TUI and web frontends fall back to the provider env vars, else a mode-600 JSON file
+   (`tui/src/keys.js`, `~/.config/aitm-tui/keys.json`) — plaintext at rest, protected by
+   file permissions only, and deliberately not shared with the Electron vault. Whatever
+   the backing store, keys must never appear in: project files, JSON exports, reports,
+   logs, crash dumps, or responses to the renderer. The renderer only ever sees
+   per-provider `{ configured, last4 }` (and, in-session, a verified flag from a
+   successful call).
+5. **Ingestion hardening** — a project may hold several sources that complement each
+   other:
+   - Local folder: user-picked via native dialog (Electron) or uploaded via the browser
+     picker (web); confine the walk to the chosen root, never follow symlinks escaping
+     it, honor `.gitignore`, skip binaries, apply byte/file-count caps.
    - Local files: user-picked; allowlist doc types `.md/.txt/.docx/.pdf` plus source
      files; reject macro-enabled Office; byte cap.
-   - Deferred to v1.1 (GitHub clone, ZIP upload): keep the source app's SSRF/IP
-     allowlisting + DNS re-resolution and zip-slip/symlink/ratio/count guards, but do
-     not wire them in v1.
+   - Browser uploads: sanitize every attacker-controlled relative path (no absolute
+     paths, no drive letters, no backslashes, no `..`), re-check confinement after the
+     join, and digest in a temp dir that is always deleted (`server/src/ingest.js`).
+   - Git URL (TUI and web): shallow clone, digest, delete. Reject a URL starting with
+     `-` and pass `--` before it so it cannot become a git option. **The source app's
+     SSRF/IP-allowlisting and DNS re-resolution guards are NOT wired**, so this will
+     reach any host the caller names. That is tolerable only because the caller is the
+     local operator; it is why neither frontend may be exposed to other users. Add the
+     guards before changing that.
+   - Not wired: ZIP upload (would need zip-slip/symlink/ratio/count guards).
 6. **AI egress**: requests go only to the configured provider host over TLS, and are
    streamed (SSE) with no wall-clock timeout; in-flight calls are cancellable via an
    `AbortController` registry (`orchestrate.cancelAll` / `ai.cancel`). Source digests
@@ -179,10 +198,21 @@ Tokens live in `renderer/styles.css` `:root`. Reference: https://github.com/oak-
   and `validateKey`. Both **OpenAI** (`/v1/responses`, JSON-schema strict) and
   **Anthropic** (Messages API, forced tool call) ship, selected via `settings.provider`
   through `getAdapter`. Both stream and call `onDelta` per chunk. `effort` maps to
-  GPT-5 `reasoning.effort` (ignored elsewhere). Don't hard-code a provider at call
-  sites; go through `orchestrate`.
+  GPT-5 `reasoning.effort` and to Anthropic `output_config.effort`. Don't hard-code a
+  provider at call sites; go through `orchestrate`.
 - **Models**: the report and other synthesis steps use the *fast* model; STRIDE and
-  coordination use the *deep* model. Both are per-provider, set in Settings.
+  coordination use the *deep* model. Both are per-provider, set in Settings. Defaults
+  live in **three** places that must agree — `PROVIDERS` in `src/renderer/app.js`,
+  `MODEL_DEFAULTS` in `tui/src/tui/App.js`, and `DEFAULTS` in `src/main/settings.js`
+  (which decides only the initial provider). A test in `test/adapters.test.js` fails if
+  the first two drift or if a superseded/date-suffixed id reappears.
+- **Anthropic adapter constraints** (non-obvious, and load-bearing): structured output
+  is a *forced tool call*, so never send `thinking: {type: "disabled"}` — with thinking
+  off, Opus 5 can emit the tool call as plain text and the step returns nothing. Claude
+  5 models think by default and thinking shares `max_tokens` with the tool input, which
+  is why `MAX_TOKENS` is 64000. Handle `stop_reason: "refusal"` before the empty-stream
+  check: classifiers decline with HTTP 200 and no tool call, and threat-modeling
+  prompts sit close to the cyber policy line.
 - All AI output is a **draft** until the user accepts/edits it; per-phase approval
   gates remain. Re-running the full pipeline resets derived data first
   (`store.resetAnalysis`); attack trees are one-per-threat and accumulative.
