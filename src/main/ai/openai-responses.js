@@ -93,7 +93,7 @@ const adapter = {
 
   async validateKey(key) {
     await this.structuredCall({
-      model: "gpt-5-mini",
+      model: "gpt-5.6-luna",
       name: "ping",
       schema: { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } },
       system: "Reply with {\"ok\": true}.",

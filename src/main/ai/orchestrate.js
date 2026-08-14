@@ -43,6 +43,12 @@ function sourcesContext(project) {
   }));
 }
 
+// "fast" vs "deep" is about reasoning depth, not input size: the fast model handles the
+// steps that read the *most* context (traceModel gets every source digest, report gets
+// the whole reviewed model), while deep is reserved for the steps that reason hardest
+// over an already-condensed model (STRIDE, coordination). So a fast model chosen purely
+// on price can be the wrong trade if it is weak at long context. Prefer a mid tier there
+// on large source sets.
 async function call({ model, name, label, schema, system, user, effort }) {
   const cfg = settings.get();
   const adapter = getAdapter(cfg.provider);
@@ -179,7 +185,7 @@ function scopeFilter({ hint, dirs, files }) {
 function report(project, enabledPhases) {
   return call({
     // The report synthesizes already-reviewed data, so it uses the fast model
-    // (e.g. Sonnet / gpt-5-mini) — far quicker than the deep model for assembly.
+    // (e.g. Sonnet 5 / GPT-5.6 Luna) — far quicker than the deep model for assembly.
     model: "fast",
     name: "threat_model_report",
     label: "Report",

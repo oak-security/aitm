@@ -119,7 +119,7 @@ The diagram below is the desktop process model.
 - **Adapters (both ship)**: `OpenAIResponsesAdapter` (`POST /v1/responses`, JSON-schema
   strict; `effort`→`reasoning.effort` on GPT-5) and `AnthropicAdapter` (Messages API,
   forced tool call; `effort`→`output_config.effort`). Selected by `settings.provider`.
-  Defaults — OpenAI: `gpt-5-mini` (fast) / `gpt-5.5` (deep); Anthropic:
+  Defaults — OpenAI: `gpt-5.6-luna` (fast) / `gpt-5.6-sol` (deep); Anthropic:
   `claude-sonnet-5` (fast) / `claude-opus-5` (deep). All overridable via Settings
   dropdowns. The report and other synthesis steps use the fast model;
   STRIDE/coordination use the deep model.

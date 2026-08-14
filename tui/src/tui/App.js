@@ -14,7 +14,7 @@ import { h, GOLD, RISK_COLORS, Header, Panel, Select, MultiSelect, TextPrompt, B
 import { ReportViewer } from "./report.js";
 
 const MODEL_DEFAULTS = {
-  openai: { fast: "gpt-5-mini", deep: "gpt-5.5" },
+  openai: { fast: "gpt-5.6-luna", deep: "gpt-5.6-sol" },
   anthropic: { fast: "claude-sonnet-5", deep: "claude-opus-5" }
 };
 
