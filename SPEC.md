@@ -20,7 +20,7 @@ Product name: **AiTM** — "AI Threat Modeller". Bundle identifier `io.oaksecuri
 - Security engineers and consultants running design-level threat models offline or on
   sensitive material that should not transit a shared backend.
 - Single-user, single-machine. No authentication, no accounts, no org gating, no
-  multi-tenant server. The app trusts the local user. **This binds all three frontends**
+  multi-tenant server. The app trusts the local user. **This binds every UI and adapter**
   (see section 5): a hosted multi-tenant build was tried and removed.
 - Primary flow: create project → set scope → ingest sources → AI-draft the TRACE
   model → review/correct → STRIDE → (optional) attack trees → (optional) coordination
@@ -30,8 +30,8 @@ Product name: **AiTM** — "AI Threat Modeller". Bundle identifier `io.oaksecuri
 
 In scope, **as built**:
 - Electron desktop app, shipped for macOS (Windows and Linux are buildable from source
-  but unsigned and untested — section 13), plus a terminal and a local web frontend over
-  the same core (section 5).
+  but unsigned and untested — section 13), plus terminal and local-web UIs, a headless
+  CLI, and an API-only server adapter over the same core (section 5).
 - Oak Security branding and design system.
 - User-provided **OpenAI and Anthropic** API keys, one per provider, encrypted
   on-device (Electron; see section 6 for the non-Electron frontends).
@@ -73,21 +73,29 @@ a Tauri sidecar without touching the renderer.
 
 ## 5. Architecture
 
-**(as built)** Three frontends share one core. `src/main/*` is the whole application
-outside the UI: project store, phase registry, ingestion, provider adapters,
-orchestration, report rendering. It is written for Electron's main process but stays
-decoupled enough that the other two load it outside Electron by faking exactly three
+**(as built)** Three UIs and two programmatic adapters share one core.
+`src/main/application.js` is the transport-neutral command and pipeline interface;
+project mutation, phase persistence, optional-phase skipping, and automatic pipeline
+sequencing live there once. Electron IPC, HTTP RPC, the TUI, and the CLI are adapters
+at that seam. The rest of `src/main/*` supplies the project store, phase registry,
+ingestion, provider adapters, orchestration, and report rendering. It is written for
+Electron's main process but stays decoupled enough that non-Electron modes load it by faking exactly three
 touchpoints (`electron`'s `app.getPath`, `keystore.js`, `stream.js`) through a
 `Module._load` hook. See AGENT.md "Core reuse invariant".
 
-| Frontend | Entry | UI | Notes |
+| Adapter | Entry | Interface | Notes |
 | --- | --- | --- | --- |
 | Desktop | `src/main/index.js` | Electron + `src/renderer` | Native dialogs, OS-keychain vault, auto-update |
-| Terminal | `tui/src/aitm-tui.js` | Ink/React | Adds git-URL ingestion and an AI scope filter |
-| Local web | `server/src/main.js` | the same `src/renderer`, served | Browser pickers, loopback-bound, no auth |
+| Terminal | `aitm tui` / `tui/src` | Ink/React | Git-URL ingestion and AI scope filter |
+| Local web | `aitm web` | served `src/renderer` | Browser pickers; loopback-bound, no auth |
+| Programmatic | `aitm -p` | stdout/JSON | In-process; no HTTP server required |
+| Server | `aitm serve` | HTTP + SSE | API-only; loopback-bound, no auth |
 
-All three are single-user and read the same project store and `settings.json`. Keys
-differ: Electron uses the OS keychain, the other two share `~/.config/aitm-tui/keys.json`
+The top-level `aitm` command is only a dispatcher: each UI is an explicit startup mode.
+A bare invocation prints usage rather than choosing a UI implicitly.
+
+All modes are single-user and read the same project store and `settings.json`. Keys
+differ: Electron uses the OS keychain; every non-Electron mode shares `~/.config/aitm-tui/keys.json`
 or the provider env vars.
 
 The diagram below is the desktop process model.
@@ -221,13 +229,14 @@ re-IDs on import collision, refuses malformed files).
 The API key is **never** part of this structure. Raw cloned repos are never persisted;
 only digests/summaries/excerpts.
 
-## 10. IPC API surface (preload bridge)
+## 10. Application command and adapter surfaces
 
 All handlers validate input and run in the main process.
 
-Each `ai.*` call persists its result into the project and returns the updated project.
-The full pipeline (re-run reset + sequencing) is orchestrated in the renderer, not a
-single IPC call. Streaming progress arrives out-of-band via the `ai:stream` event.
+Each `ai.*` command persists its result into the project and returns the updated project.
+`pipeline.step` and `pipeline.run` expose the same shared sequencing used by `aitm -p`;
+the interactive renderers may still call individual phases for approval gates.
+Streaming progress arrives out-of-band via the Electron event or HTTP SSE adapter.
 
 ```
 projects.list() / get(id) / create(input) / update(id, patch) / remove(id)
@@ -252,6 +261,9 @@ ai.classify(projectId) / traceModel / stride / coordination / report  -> project
 ai.attackTree(projectId, { threatIds }) -> project   // one tree per new threat, accumulative
 ai.cancel() -> { cancelled }
 ai.onStream(cb)  // 'ai:stream' events: { event: start|progress|end|error, label, tokens, message }
+
+pipeline.step(projectId, step, options) -> { step, status, project }
+pipeline.run(projectId, {reset, attackTreeLimit}) -> { project, steps }
 
 report.exportPdf(projectId) / exportMarkdown(projectId) -> { canceled } | { path }
 

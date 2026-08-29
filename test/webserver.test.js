@@ -142,6 +142,7 @@ test("e2e: server serves app, rpc, ingest, settings, stream", async () => {
     const pid = created.body.result.project.id;
     assert.equal((await rpc("projects.list", {})).body.result.length, 1);
     assert.equal((await rpc("nope.nope", {})).status, 404);
+    assert.equal((await rpc("toString", {})).status, 404, "prototype names are not commands");
 
     // Cross-origin mutating requests are refused; loopback ones pass.
     const foreign = await rpc("projects.create", { name: "CSRF" }, { origin: "https://evil.example" });
@@ -209,6 +210,27 @@ test("e2e: server serves app, rpc, ingest, settings, stream", async () => {
       req.on("error", reject);
     });
     assert.equal(sse, "text/event-stream");
+  } finally {
+    server.close();
+  }
+});
+
+test("server mode: API-only server advertises commands and does not serve the UI", async () => {
+  const { createWebServer } = await srv("server.js");
+  const server = createWebServer({ serveUi: false });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    const home = await fetch(`${base}/`);
+    assert.equal(home.status, 404);
+    assert.equal((await home.json()).error.code, "not_found");
+
+    const catalog = await fetch(`${base}/api/commands`);
+    assert.equal(catalog.status, 200);
+    const { commands } = await catalog.json();
+    assert.ok(commands.includes("pipeline.run"));
+    assert.ok(commands.includes("projects.create"));
   } finally {
     server.close();
   }

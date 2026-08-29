@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const core = (p) => require(path.join(ROOT, "src", "main", p));
 
 export const orchestrate = core("ai/orchestrate.js");
+export const application = core("application.js");
 export const { getAdapter } = core("ai/index.js");
 export const store = core("projects/store.js");
 export const schema = core("projects/schema.js");

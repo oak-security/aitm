@@ -8,17 +8,17 @@ TUI. Projects created here appear in the desktop app and vice versa.
 
 ```sh
 cd tui && npm install         # once; root `npm install` must also have been run
-node src/aitm-tui.js [source ...]
-# or: npm link  →  aitm-tui [source ...]
+cd .. && npm link             # optional: install the unified `aitm` command
+npm run tui -- [source ...]   # or: aitm tui [source ...]
 ```
 
 Sources (any mix; no arguments = current directory, recursively):
 
 ```sh
-aitm-tui                                   # cwd
-aitm-tui ./docs/architecture.md spec.pdf   # explicit files
-aitm-tui /path/to/project                  # a directory
-aitm-tui https://github.com/owner/repo     # shallow clone, ingested, clone removed
+aitm tui                                   # cwd
+aitm tui ./docs/architecture.md spec.pdf   # explicit files
+aitm tui /path/to/project                  # a directory
+aitm tui https://github.com/owner/repo     # shallow clone, ingested, clone removed
 ```
 
 ## Flow

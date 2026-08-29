@@ -6,14 +6,27 @@ Local-first application for AI-assisted threat modeling using the
 [TRACE](https://github.com/oak-security/TRACE) framework.
 
 - **Local-first**: projects and your API key live on your machine; nothing is uploaded
-  except the AI calls you trigger. No accounts, no backend, no telemetry.
+  except the AI calls you trigger. No accounts, no hosted backend, no telemetry.
 - **Bring your own key**: OpenAI or Anthropic, one per provider.
 - **TRACE phases**: Scope & Sources → TRACE model → STRIDE → Attack trees →
   Collusion/Coordination → Report. Optional phases toggle per project.
 - **Generic**: domain profiles span generic IT, web, cloud, mobile, ICS/OT, and Web3.
-- **Three frontends over one core**, all single-user against the same project store:
-  the [Electron desktop app](#download--install) (below), a
-  [terminal UI](#terminal-ui-aitm-tui), and a [local web UI](#local-web-ui-aitm-web).
+- **Three UIs and two programmatic adapters over one application core**: the
+  [Electron desktop app](#download--install), [terminal UI](#terminal-ui),
+  [local web UI](#local-web-ui), [headless CLI](#programmatic-cli), and
+  [HTTP/SSE server](#api-server). All are single-user and share one project store.
+
+AiTM's command is an engine dispatcher; every adapter is selected explicitly:
+
+| Command | Adapter |
+| --- | --- |
+| `aitm tui [source ...]` | Ink terminal UI |
+| `aitm gui` | Electron desktop UI |
+| `aitm web` | Browser UI with its local HTTP/SSE transport |
+| `aitm -p [command ...]` | In-process programmatic CLI |
+| `aitm serve` | API-only HTTP/SSE server |
+
+A bare `aitm` prints usage. From a source checkout, `npm link` installs the command.
 
 ## Download & install
 
@@ -154,26 +167,27 @@ The report is an **AI-assisted, design-level** document — it is not a code aud
 penetration test, or certification, and should be reviewed by an expert before external
 use.
 
-## Terminal UI (aitm-tui)
+## Terminal UI
 
 A keyboard-driven TUI frontend that runs the same pipeline against the same project
 store, no Electron window needed. It adds git/GitHub URL ingestion (shallow clone, also
 in the web UI below, not in the desktop app) and an AI-applied scope hint that reduces
-the ingested file set ("only the docs directory"), which is unique to the TUI.
+the ingested file set ("only the docs directory"). Programmatic mode reuses both.
 
 ```sh
 npm install && (cd tui && npm install)   # once
-npm run tui -- [source ...]              # or: node tui/src/aitm-tui.js [source ...]
+npm link                                 # optional: installs the `aitm` command
+npm run tui -- [source ...]
 
-aitm-tui                                 # current directory
-aitm-tui docs/arch.md spec.pdf           # specific files
-aitm-tui https://github.com/owner/repo   # shallow-cloned, clone removed after
+aitm tui                                 # current directory
+aitm tui docs/arch.md spec.pdf           # specific files
+aitm tui https://github.com/owner/repo   # shallow-cloned, clone removed after
 ```
 
 API keys come from `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the TUI's own key file;
 the desktop app's OS-keychain vault is Electron-only. See `tui/README.md`.
 
-## Local web UI (aitm-web)
+## Local web UI
 
 The same renderer served in your browser instead of an Electron window, running the same
 pipeline against the same project store. Single user, no authentication, bound to
@@ -182,13 +196,51 @@ ingestion, and uses browser file pickers in place of the native dialogs.
 
 ```sh
 npm install
-npm run web        # http://localhost:8790
+npm run web        # equivalent to: aitm web
+# http://localhost:8790
 ```
 
 Projects and settings are shared with the desktop app and the TUI; API keys come from
 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the same key file `aitm-tui` uses (the desktop
 app's OS-keychain vault is Electron-only). Since there is no authentication, do not bind
 it to a non-loopback address; forward the port over SSH instead. See `server/README.md`.
+
+## Programmatic CLI
+
+`aitm -p` runs against the application core in-process; no web server is required.
+Progress goes to stderr, while the report or requested data goes to stdout so commands
+can be scripted. Add `--json` for structured project/list/status output.
+
+```sh
+aitm -p ./architecture                # ingest, run every enabled phase, print report
+aitm -p new ./docs --name "Payments"  # ingest only; prints the project id
+aitm -p projects --json               # list shared projects
+aitm -p stride <project-id>           # run one phase
+aitm -p pipeline <project-id> --reset # clean re-run of the full pipeline
+aitm -p export <project-id> > report.md
+```
+
+Use `aitm --help` for the full command and model/provider option list. Keys come from
+the same environment variables or non-Electron key file as the TUI and web UI.
+
+## API server
+
+`aitm serve` starts the API-only HTTP/SSE adapter. It does not serve the browser UI;
+use `aitm web` for that. The server binds `127.0.0.1:8790` by default.
+
+```sh
+aitm serve
+curl http://127.0.0.1:8790/api/healthz
+curl http://127.0.0.1:8790/api/commands
+curl -sS -X POST http://127.0.0.1:8790/api/rpc \
+  -H 'content-type: application/json' \
+  -d '{"channel":"projects.list","payload":{}}'
+```
+
+The command interface includes `pipeline.step` and `pipeline.run`; live provider
+progress is available from `GET /api/stream`. This is still AiTM's local, single-user
+server: there is no built-in authentication. Keep it on loopback or put it behind an
+authenticated TLS tunnel/proxy. See `server/README.md` for the complete surface.
 
 ## Develop
 
@@ -256,14 +308,14 @@ macOS build has a feed (`latest-mac.yml`) at all.
 - [AGENT.md](AGENT.md) — build/run conventions and the security/branding invariants.
 - [SPEC.md](SPEC.md) — product and technical specification.
 - [tui/README.md](tui/README.md) — the terminal frontend.
-- [server/README.md](server/README.md) — the local web frontend.
+- [server/README.md](server/README.md) — the local web and API-server adapters.
 
 ## Data location
 
-All three frontends share one data directory: `~/Library/Application Support/AiTM`
+All modes share one data directory: `~/Library/Application Support/AiTM`
 (macOS), `%APPDATA%\AiTM` (Windows), `~/.config/AiTM` (Linux), holding `projects/*.json`
-and `settings.json`. A project created in any of them opens in the other two.
-`AITM_DATA_DIR` overrides it for the TUI and the web UI. The desktop app's sidebar has a
+and `settings.json`. A project created in one mode opens in every other mode.
+`AITM_DATA_DIR` overrides it for all non-Electron modes. The desktop app's sidebar has a
 "Reveal data folder" link.
 
 API keys are the exception, because the OS keychain is only reachable from Electron:
@@ -271,9 +323,9 @@ API keys are the exception, because the OS keychain is only reachable from Elect
 | Frontend | Key storage |
 | --- | --- |
 | Desktop | `keystore.bin` in the data dir, encrypted via the OS keychain |
-| TUI, web | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, else `~/.config/aitm-tui/keys.json` (mode 600) |
+| TUI, web, CLI, server | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, else `~/.config/aitm-tui/keys.json` (mode 600) |
 
-So a key entered in the desktop app is not visible to the other two, and vice versa.
+So a key entered in the desktop app is not visible to non-Electron modes, and vice versa.
 
 ## License
 

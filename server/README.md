@@ -1,19 +1,19 @@
-# aitm-web
+# AiTM web and server adapters
 
 Local web frontend for AiTM. Serves the desktop app's renderer in the browser (the
 Electron preload is replaced by `web/web-api.js` over HTTP + SSE) with the same TRACE
 pipeline running in the Node process behind it.
 
-It is a **third frontend, not a service**: single user, no authentication, no accounts,
-no tenancy, bound to loopback, trusting the local user exactly as the desktop app and the
-TUI do (SPEC.md section 2). Use it when you want the desktop UI without an Electron
-window, or on a machine where installing the packaged app is inconvenient.
+Both modes are single user, with no authentication, accounts, or tenancy, and bind to
+loopback by default. `aitm web` is the browser frontend; `aitm serve` exposes the same
+application command interface without serving any UI.
 
 ## Run
 
 ```sh
 npm install            # repo root, once
-npm run web            # http://localhost:8790
+npm run web            # aitm web; UI + API at http://localhost:8790
+npm run server         # aitm serve; API only at http://localhost:8790
 ```
 
 | Environment variable | Meaning |
@@ -23,6 +23,10 @@ npm run web            # http://localhost:8790
 | `AITM_WEB_ALLOWED_HOSTS` | comma list of extra hostnames the server answers to |
 | `AITM_DATA_DIR` | project store location (default: the desktop app's data dir) |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | provider keys, if you'd rather not store them |
+
+API-only mode uses the corresponding `AITM_SERVER_PORT`, `AITM_SERVER_HOST`, and
+`AITM_SERVER_ALLOWED_HOSTS` variables. Command-line `--port`, `--host`, and
+`--allowed-hosts` options override them in either mode.
 
 **There is no authentication.** Anyone who can reach the port has full access to your
 projects, your provider keys, and your API spend. Keep the bind address on loopback
@@ -84,9 +88,11 @@ required, the same approach as `tui/src/shim.js`. See AGENT.md "Core reuse invar
 
 ## API surface
 
-`POST /api/rpc {channel, payload}` mirrors the desktop IPC channels (`projects.*`,
-`keystore.*`, `settings.*`, `phases.registry`, `ingest.removeSource`, `ai.*`) minus the
-ones that need a native dialog. Extras: `POST /api/ingest/{files,folder,repo}`,
+`POST /api/rpc {channel, payload}` adapts the shared application commands
+(`projects.*`, `keystore.*`, `settings.*`, `phases.registry`, `ingest.removeSource`,
+`ai.*`, `pipeline.step`, `pipeline.run`) minus the ones that need a native dialog.
+`GET /api/commands` returns the available command names. Extras:
+`POST /api/ingest/{files,folder,repo}`,
 `GET /api/report/{md,pdf}?projectId=`, `GET /api/stream` (SSE:
 `{event, label, tokens, message}`), `GET /api/healthz`.
 

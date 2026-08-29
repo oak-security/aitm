@@ -1,8 +1,7 @@
-// Local single-user HTTP + SSE server. Serves the desktop renderer as a web app (with
-// web-api.js swapped in for the Electron preload), an RPC endpoint mirroring the IPC
-// channels, upload/repo ingestion, report downloads, and an SSE stream for AI progress
-// events. No auth, no accounts, no tenancy: it binds loopback and trusts the local user
-// exactly as the desktop app and the TUI do.
+// Local single-user HTTP + SSE adapter. Web mode also serves the desktop renderer (with
+// web-api.js swapped in for the Electron preload); API-only mode does not. Both expose
+// application commands, upload/repo ingestion, report downloads, and AI progress SSE.
+// No auth, accounts, or tenancy: the default loopback bind trusts the local operator.
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -116,23 +115,26 @@ export function isAllowedOrigin(req, allowed) {
 
 // allowedHosts: extra hostnames this server may be reached by (beyond loopback), e.g. a
 // Tailscale MagicDNS name or tailnet IP. Everything else is refused.
-export function createWebServer({ allowedHosts = [] } = {}) {
+export function createWebServer({ allowedHosts = [], serveUi = true } = {}) {
   const allowed = new Set(allowedHosts.map(bareHost).filter(Boolean));
   const handlers = buildHandlers();
 
   // SSE fanout: the stream shim's emitStream lands here, and every connected tab gets
   // a copy (the desktop app has one window; a browser may have several).
   const subscribers = new Set();
-  streamBus.on("stream", (payload) => {
+  const fanout = (payload) => {
     const frame = `data: ${JSON.stringify(payload)}\n\n`;
     for (const res of subscribers) res.write(frame);
-  });
+  };
+  streamBus.on("stream", fanout);
 
   // The renderer's index.html with the web API shim injected before app.js, so
   // window.api exists by the time the renderer runs.
-  const indexHtml = fs
-    .readFileSync(path.join(RENDERER_DIR, "index.html"), "utf8")
-    .replace('<script src="app.js"></script>', '<script src="web-api.js"></script>\n    <script src="app.js"></script>');
+  const indexHtml = serveUi
+    ? fs
+        .readFileSync(path.join(RENDERER_DIR, "index.html"), "utf8")
+        .replace('<script src="app.js"></script>', '<script src="web-api.js"></script>\n    <script src="app.js"></script>')
+    : "";
 
   function serveStatic(res, baseDir, rel) {
     const file = path.normalize(path.join(baseDir, rel));
@@ -164,9 +166,13 @@ export function createWebServer({ allowedHosts = [] } = {}) {
       }
 
       if (pathname === "/api/healthz") return json(res, 200, { ok: true });
+      if (m === "GET" && pathname === "/api/commands") {
+        return json(res, 200, { commands: Object.keys(handlers).sort() });
+      }
 
       // Static app shell.
       if (m === "GET" && !pathname.startsWith("/api/")) {
+        if (!serveUi) return json(res, 404, { error: { code: "not_found", message: "API server mode does not serve a UI." } });
         if (pathname === "/" || pathname === "/index.html") {
           res.writeHead(200, { "content-type": MIME[".html"], "content-security-policy": CSP });
           return res.end(indexHtml);
@@ -246,6 +252,8 @@ export function createWebServer({ allowedHosts = [] } = {}) {
       res.end();
     }
   });
+
+  server.once("close", () => streamBus.off("stream", fanout));
 
   return server;
 }

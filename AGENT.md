@@ -9,8 +9,9 @@ commands, and the non-negotiable security/branding invariants.
 Cross-platform AI-assisted threat modeling using the **TRACE** framework
 (https://github.com/oak-security/TRACE). Started as a desktop port of an internal
 Node/Express + vanilla-JS web dashboard (Oak-branded, OpenAI-backed); it now ships
-**three frontends over one core** — Electron desktop, a terminal UI (`tui/`), and a
-local web server (`server/`) — all single-user against the same project store.
+**three UIs and two programmatic adapters over one application core** — Electron
+desktop, terminal UI (`tui/`), local web UI (`server/`), headless CLI (`cli/`), and an
+API-only server mode — all single-user against the same project store.
 
 Differences from the source web app:
 
@@ -59,6 +60,7 @@ AiTM/
   src/
     main/             # main process
       index.js        # app bootstrap, window, menu, lifecycle, auto-update
+      application.js  # shared command interface + full TRACE pipeline runner
       stream.js       # emitStream -> renderer 'ai:stream' events
       ipc/            # IPC handlers; validates all input
       keystore.js     # safeStorage-backed per-provider key vault
@@ -76,6 +78,8 @@ AiTM/
       app.js          # workbench logic, calls window.api.*
       assets/         # AiTM mark + app icon, oak-white/black.svg, BDO Grotesk (vendored)
   test/
+    application.test.js # command/pipeline interface behavior with local fakes
+    cli.test.js        # mode dispatch and headless CLI smoke coverage
     core.test.js      # schema migration, phase seeding, render, ingestion guards
     tui.test.js       # TUI shim, target resolution, pipeline helpers
     webserver.test.js # host/origin guards, upload sanitizing, preload contract, e2e
@@ -95,16 +99,21 @@ AiTM/
                       #   Browser preload replacement is server/web/web-api.js (fetch +
                       #   SSE + upload/repo ingestion + download export).
                       #   See server/README.md.
+  cli/                # `aitm` engine dispatcher: `tui`, `gui`, `web`, `-p`, `serve`
 ```
 
 ## Core reuse invariant
 
-`src/main/*` (orchestrate, digest, projects/store, settings, phases, report, adapters)
+`src/main/application.js` is the shared seam for project/settings/key commands and
+pipeline execution. Electron IPC, HTTP RPC, the TUI phase adapter, and the headless CLI
+must call it rather than reimplementing project mutations or phase sequencing.
+
+The rest of `src/main/*` (orchestrate, digest, projects/store, settings, phases, report, adapters)
 must stay Electron-decoupled enough that the tui/ and server/ shims can load it by
 faking exactly three touchpoints: `electron` (app.getPath), `keystore.js`, `stream.js`.
 Both shims intercept those by absolute AND relative require path. When adding a new
 `require("electron")` or OS-vault call in src/main, either keep it behind one of those
-three modules or extend both shims. All three frontends are single-user against one
+three modules or extend both shims. All modes are single-user against one
 shared data dir, so no shim overrides `settings.js` or partitions the store; keep it
 that way. `orchestrate.cancelAll(scope)` still accepts an optional scope (via
 `setScopeProvider`), but nothing sets one now: the default null scope means
@@ -115,8 +124,10 @@ that way. `orchestrate.cancelAll(scope)` still accepts an optional scope (via
 (Define these scripts in `package.json` as you scaffold; agents should run them, not
 invent ad-hoc commands.)
 
-- `npm run dev` — launch Electron against the local renderer with devtools.
-- `npm run tui` — the terminal frontend. `npm run web` — the local web frontend.
+- `npm run dev` — `aitm gui --dev`; Electron against the local renderer with devtools.
+- `npm run tui` — `aitm tui`. `npm run gui` — `aitm gui`. `npm run web` — `aitm web`.
+- `npm run aitm -- -p ...` — programmatic mode. `npm run server` — API-only
+  `aitm serve` mode. Both run the shared application module outside Electron.
 - `npm run check` — `node --check` over the main/preload/renderer and server entry
   points. There is no linter; keep it a syntax gate.
 - `npm test` — `node --test` over `test/**/*.test.js` (ingestion and upload guards,

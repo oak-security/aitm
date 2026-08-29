@@ -1,66 +1,37 @@
-// Phase runners mirroring the desktop app's IPC ai.* handlers (src/main/ipc/index.js):
-// each runs one orchestrate step, merges the draft into the project, and persists.
+// TUI adapter for the shared application pipeline. The application module owns every
+// mutation; this file adds only the TUI's step descriptors and human summaries.
 import * as core from "./core.js";
 
-const { orchestrate, store, phases, render, util } = core;
+const { application, phases } = core;
 
-export const RISK_RANK = { Critical: 5, High: 4, Medium: 3, Low: 2, Informational: 1, "N/A": 0 };
+export const RISK_RANK = application.RISK_RANK;
 
 export function topThreats(threats, n) {
-  return (threats || [])
-    .filter((t) => t.isApplicable !== false)
-    .slice()
-    .sort((a, b) => (RISK_RANK[b.risk] || 0) - (RISK_RANK[a.risk] || 0))
-    .slice(0, n);
+  return application.topThreats(threats, n);
 }
 
 export async function runClassify(project) {
-  const draft = await orchestrate.classify(project);
-  project.classification = { ...draft, userOverride: false };
-  project.phasesEnabled = phases.seedEnabled(project.classification, project.phasesEnabled);
-  project.coordination.enabled = project.phasesEnabled.includes("coordination");
-  return store.persist(project);
+  return (await application.runStep(project.project.id, "classify")).project;
 }
 
 export async function runTraceModel(project) {
-  const draft = await orchestrate.traceModel(project);
-  project.traceModel = { ...project.traceModel, ...draft };
-  return store.persist(project);
+  return (await application.runStep(project.project.id, "trace-model")).project;
 }
 
 export async function runStride(project) {
-  const draft = await orchestrate.stride(project);
-  project.strideThreats = (draft.threats || []).map((t) => ({ id: util.uuid(), status: "draft", ...t }));
-  return store.persist(project);
+  return (await application.runStep(project.project.id, "stride")).project;
 }
 
-// Accumulative, one tree per threat; persists after each tree so a cancel keeps progress.
 export async function runAttackTrees(project, threatIds) {
-  const existing = new Set((project.attackTrees || []).map((t) => t.threatId).filter(Boolean));
-  const ids = (threatIds || []).filter((id) => id && !existing.has(id));
-  for (const threatId of ids) {
-    const draft = await orchestrate.attackTree(project, threatId);
-    project.attackTrees.push({ id: util.uuid(), threatId, ...draft });
-    project = store.persist(project);
-  }
-  return project;
+  return (await application.runStep(project.project.id, "attack-trees", { threatIds })).project;
 }
 
 export async function runCoordination(project) {
-  const draft = await orchestrate.coordination(project);
-  project.coordination = { enabled: true, scenarios: draft.scenarios || [], notes: draft.notes || "" };
-  return store.persist(project);
+  return (await application.runStep(project.project.id, "coordination")).project;
 }
 
 export async function runReport(project) {
-  const enabled = Array.isArray(project.phasesEnabled) ? project.phasesEnabled : [];
-  const draft = await orchestrate.report(project, enabled);
-  project.report = {
-    markdown: draft.markdown || "",
-    html: render.toHtml(draft.markdown || "", project.project.name),
-    generatedAt: new Date().toISOString()
-  };
-  return store.persist(project);
+  return (await application.runStep(project.project.id, "report")).project;
 }
 
 // The step sequence for both workflow modes. Optional steps mark themselves skipped
