@@ -2,10 +2,10 @@
 
 const path = require("node:path");
 const { app, BrowserWindow, Menu, shell, session, nativeImage } = require("electron");
+const { rendererDir: RENDERER_DIR } = require("@oak-security/aitm-workbench");
 const { registerIpc } = require("./ipc");
 
 const isDev = process.argv.includes("--dev");
-const RENDERER_DIR = path.join(__dirname, "..", "renderer");
 // Bundled with the renderer assets so it resolves in both dev and packaged builds
 // (build/ is buildResources for the installer/bundle icon, not shipped in app files).
 const ICON_PNG = path.join(RENDERER_DIR, "assets", "logo", "app-icon.png");
@@ -113,22 +113,6 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// Auto-update from GitHub Releases. Packaged builds only; never in dev (app-update.yml
-// is absent there). Failure-tolerant: a private repo without a runtime token simply
-// returns 404 and we stay quiet rather than bothering the user.
-function initAutoUpdate() {
-  if (isDev || !app.isPackaged) return;
-  try {
-    const { autoUpdater } = require("electron-updater");
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.on("error", (err) => console.log("[updater]", err && err.message));
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => console.log("[updater]", err && err.message));
-  } catch (err) {
-    console.log("[updater] disabled:", err && err.message);
-  }
-}
-
 app.whenReady().then(() => {
   // Replace the default Electron dock icon during dev (macOS).
   if (process.platform === "darwin" && app.dock) {
@@ -139,7 +123,6 @@ app.whenReady().then(() => {
   registerIpc();
   buildMenu();
   createWindow();
-  initAutoUpdate();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

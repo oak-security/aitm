@@ -3,7 +3,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert");
 
-const { createApplication, PIPELINE_STEPS, topThreats } = require("../src/main/application");
+const { createApplication, PIPELINE_STEPS, topThreats } = require("../packages/engine");
 
 function fixture({ coordination = false } = {}) {
   let project = {
@@ -90,7 +90,7 @@ test("application: one command interface owns project operations", async () => {
   const { app } = fixture();
   assert.equal((await app.execute("projects.list"))[0].name, "Demo");
   assert.equal((await app.execute("projects.get", { id: "id" })).project.name, "Demo");
-  await assert.rejects(() => app.execute("not.a.command"), (err) => err.code === "no_command");
+  assert.throws(() => app.execute("not.a.command"), (err) => err.code === "no_command");
 });
 
 test("application: full pipeline runs in order and skips disabled phases", async () => {

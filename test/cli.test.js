@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
-const ENTRY = path.join(ROOT, "cli", "src", "aitm.js");
+const ENTRY = path.join(ROOT, "packages", "cli", "src", "aitm.js");
 
 function cli(args, env = {}) {
   return spawnSync(process.execPath, [ENTRY, ...args], {
@@ -20,7 +20,7 @@ function cli(args, env = {}) {
 }
 
 test("cli: argument parser selects explicit UI, programmatic, and serve modes", async () => {
-  const { parseArgs, selectMode } = await import(path.join(ROOT, "cli", "src", "args.js"));
+  const { parseArgs, selectMode } = await import(path.join(ROOT, "packages", "cli", "src", "args.js"));
   assert.deepEqual(parseArgs(["-p", "run", "docs", "--trees=2"]), {
     positional: ["run", "docs"],
     flags: { print: true, trees: "2" }
@@ -62,7 +62,7 @@ test("cli: help and version are available without loading a frontend", () => {
 
   const version = cli(["--version"]);
   assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout.trim(), `aitm ${require("../package.json").version}`);
+  assert.equal(version.stdout.trim(), `aitm ${require("../packages/cli/package.json").version}`);
 });
 
 test("cli: programmatic project commands run in-process without a server", () => {

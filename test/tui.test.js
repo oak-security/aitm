@@ -7,17 +7,17 @@ const os = require("node:os");
 const path = require("node:path");
 
 // The TUI is ESM; load it via dynamic import. Point its data dirs at temp locations
-// before first import so the Electron shim and key file never touch real user data.
+// before first import so the CLI runtime and key file never touch real user data.
 const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), "aitm-tui-test-data-"));
 const tmpConf = fs.mkdtempSync(path.join(os.tmpdir(), "aitm-tui-test-conf-"));
 process.env.AITM_DATA_DIR = tmpData;
 process.env.AITM_TUI_CONFIG_DIR = tmpConf;
 
-const tui = (p) => import(path.join(__dirname, "..", "tui", "src", p));
+const tui = (p) => import(path.join(__dirname, "..", "packages", "cli", "src", "tui", p));
 
-test("tui core: loads main-process modules outside Electron via the shim", async () => {
+test("tui core: loads the engine package without an Electron shim", async () => {
   const core = await tui("core.js");
-  assert.equal(typeof core.orchestrate.classify, "function");
+  assert.equal(typeof core.application.runPipeline, "function");
   assert.equal(typeof core.orchestrate.scopeFilter, "function");
   assert.equal(typeof core.digest.buildFolderDigest, "function");
   assert.equal(typeof core.renderReportPdf, "function");
@@ -99,10 +99,8 @@ test("tui pipeline: summarize covers every step id", async () => {
 
 test("tui schemas: scope filter schema and prompt are registered", async () => {
   const core = await tui("core.js");
-  const { createRequire } = require("node:module");
-  const req = createRequire(path.join(__dirname, "..", "src", "main", "ai", "x.js"));
-  const schemas = req("./schemas");
-  const prompts = req("./prompts");
+  const schemas = require("../packages/engine/src/ai/schemas");
+  const prompts = require("../packages/engine/src/ai/prompts");
   const s = schemas.scopeFilterSchema();
   assert.deepEqual(s.required, ["include", "note"]);
   assert.ok(prompts.SCOPE_FILTER.includes("scope hint"));

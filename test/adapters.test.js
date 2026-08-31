@@ -5,7 +5,7 @@ const assert = require("node:assert");
 const path = require("node:path");
 const fs = require("node:fs");
 
-const anthropic = require(path.join(__dirname, "..", "src", "main", "ai", "anthropic.js"));
+const anthropic = require(path.join(__dirname, "..", "packages", "engine", "src", "ai", "anthropic.js"));
 
 // Minimal Messages API stream stub: yields each frame as an SSE `data:` event and
 // records the request body so we can assert on what was sent.
@@ -84,15 +84,15 @@ test("anthropic: max_tokens leaves room for thinking, which stays enabled", asyn
 
 test("models: renderer, TUI and settings agree, and no superseded ids linger", () => {
   const read = (...p) => fs.readFileSync(path.join(__dirname, "..", ...p), "utf8");
-  const appJs = read("src", "renderer", "app.js");
-  const tuiJs = read("tui", "src", "tui", "App.js");
-  const settingsJs = read("src", "main", "settings.js");
+  const appJs = read("packages", "workbench", "renderer", "app.js");
+  const tuiJs = read("packages", "cli", "src", "tui", "tui", "App.js");
+  const settingsJs = read("packages", "engine", "src", "settings.js");
   const sources = {
     renderer: appJs,
     tui: tuiJs,
     settings: settingsJs,
-    "anthropic adapter": read("src", "main", "ai", "anthropic.js"),
-    "openai adapter": read("src", "main", "ai", "openai-responses.js")
+    "anthropic adapter": read("packages", "engine", "src", "ai", "anthropic.js"),
+    "openai adapter": read("packages", "engine", "src", "ai", "openai-responses.js")
   };
 
   const SUPERSEDED = new Set([

@@ -1,0 +1,23 @@
+{
+  "name": "@oak-security/aitm",
+  "version": "0.3.0",
+  "description": "AiTM command line, terminal UI, local web UI, and API server.",
+  "license": "UNLICENSED",
+  "author": { "name": "Oak Security", "email": "info@oaksecurity.io" },
+  "type": "module",
+  "bin": { "aitm": "src/aitm.js" },
+  "files": ["src/**/*", "web/**/*", "docs/**/*", "README.md"],
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/oak-security/aitm.git" },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "dependencies": {
+    "@oak-security/aitm-engine": "0.3.0",
+    "@oak-security/aitm-workbench": "0.3.0",
+    "ink": "^5.1.0",
+    "ink-spinner": "^5.0.0",
+    "react": "^18.3.1"
+  }
+}

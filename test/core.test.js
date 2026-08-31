@@ -6,10 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const schema = require("../src/main/projects/schema");
-const phases = require("../src/main/phases");
-const render = require("../src/main/report/render");
-const { buildFolderDigest } = require("../src/main/ingest/digest");
+const { schema, phases, render, digest: { buildFolderDigest } } = require("../packages/engine");
 
 test("schema: createProject has required phases and empty model", () => {
   const p = schema.createProject("Demo");

@@ -2,12 +2,11 @@
 
 const fs = require("node:fs");
 const { ipcMain, dialog, shell, app, BrowserWindow } = require("electron");
-const { appError, assertString } = require("../util");
-
-const application = require("../application");
-const store = require("../projects/store");
+const {
+  util: { appError, assertString }
+} = require("@oak-security/aitm-engine");
+const { getRuntime } = require("../runtime");
 const ingest = require("../ingest");
-const { renderReportPdf, safeDownloadName } = require("../report/pdf");
 
 // Wrap each handler so thrown AppErrors surface a clean { code, message } to the renderer.
 function handle(channel, fn) {
@@ -23,15 +22,18 @@ function handle(channel, fn) {
   });
 }
 
-function requireProject(id) {
+function requireProject(application, id) {
   assertString(id, "projectId", { max: 64 });
-  return store.get(id);
+  return application.execute("projects.get", { id });
 }
 
 function registerIpc() {
+  const runtime = getRuntime();
+  const { application } = runtime;
+  const { renderReportPdf, safeDownloadName } = runtime.reports;
   // Shared project, settings, key, and pipeline commands. HTTP, TUI, and CLI use
   // this same application interface through their own adapters.
-  for (const channel of application.COMMANDS) {
+  for (const channel of application.commands) {
     handle(channel, (payload) => application.execute(channel, payload));
   }
 
@@ -48,7 +50,7 @@ function registerIpc() {
   });
   // ---- report PDF export ----
   handle("report.exportPdf", async ({ projectId }) => {
-    const project = requireProject(projectId);
+    const project = requireProject(application, projectId);
     const markdown = project.report && project.report.markdown;
     if (!markdown || !markdown.trim()) throw appError("empty_report", "Generate a report before exporting a PDF.");
     const win = BrowserWindow.getFocusedWindow();
@@ -64,7 +66,7 @@ function registerIpc() {
   });
 
   handle("report.exportMarkdown", async ({ projectId }) => {
-    const project = requireProject(projectId);
+    const project = requireProject(application, projectId);
     const markdown = project.report && project.report.markdown;
     if (!markdown || !markdown.trim()) throw appError("empty_report", "Generate a report before exporting Markdown.");
     const win = BrowserWindow.getFocusedWindow();

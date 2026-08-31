@@ -26,7 +26,8 @@ AiTM's command is an engine dispatcher; every adapter is selected explicitly:
 | `aitm -p [command ...]` | In-process programmatic CLI |
 | `aitm serve` | API-only HTTP/SSE server |
 
-A bare `aitm` prints usage. From a source checkout, `npm link` installs the command.
+A bare `aitm` prints usage. The CLI and desktop are separate installations over the
+same versioned engine; installing one does not pull in the other.
 
 ## Download & install
 
@@ -48,6 +49,29 @@ The macOS build is signed and notarized, so it opens with no Gatekeeper warning.
 Note: **Apple Silicon (M-series) only** — Intel Macs aren't supported yet.
 
 You also need your **own AI API key** (OpenAI or Anthropic) — see "First run" below.
+
+### CLI, TUI, web UI, and API server
+
+The non-Electron modes ship as the private GitHub Package `@oak-security/aitm`. Authenticate
+npm to GitHub Packages with an Oak-authorized token carrying `read:packages`, then install
+to a user-writable prefix:
+
+```sh
+npm login --scope=@oak-security --auth-type=legacy --registry=https://npm.pkg.github.com
+npm install --global --prefix "$HOME/.local" @oak-security/aitm
+aitm --version
+```
+
+Ensure `$HOME/.local/bin` is on `PATH`. This package contains `aitm tui`, `aitm -p`,
+`aitm web`, and `aitm serve`; it does not contain Electron. On macOS, `aitm gui` launches
+the separately installed AiTM application.
+
+From a source checkout, use the same user-local layout without publishing first:
+
+```sh
+npm ci
+NPM_CONFIG_PREFIX="$HOME/.local" npm run link:cli
+```
 
 ### Windows & Linux (build from source)
 
@@ -84,7 +108,7 @@ Then install the artifact from `dist/`:
 
 If you would rather not package at all, both non-macOS platforms can run the app
 straight from the checkout with `npm start`, or use the
-[terminal UI](#terminal-ui-aitm-tui) / [local web UI](#local-web-ui-aitm-web), which are
+[terminal UI](#terminal-ui) / [local web UI](#local-web-ui), which are
 plain Node processes with no packaging step.
 
 ### First run
@@ -98,11 +122,13 @@ Your key is stored encrypted on your device (OS keychain) and is only ever sent 
 provider you select. Projects and settings live in your app-data folder ("Reveal data
 folder" in the sidebar).
 
-### Updates
+### Desktop updates
 
-Auto-update is not active yet, so check the [Releases page](https://github.com/oak-security/aitm/releases/latest)
-for new versions and install over the top. Windows and Linux builds get no update feed
-at all — rebuild from an updated checkout.
+The private repository cannot provide an anonymous Electron update feed, so the desktop
+does not pretend to auto-update. Check the [Releases page](https://github.com/oak-security/aitm/releases/latest)
+and install the new DMG over the existing application. Update the CLI separately with
+the same `npm install --global --prefix ...` command. Windows and Linux desktop builds
+must be rebuilt from an updated checkout.
 
 ## Usage guide
 
@@ -175,9 +201,7 @@ in the web UI below, not in the desktop app) and an AI-applied scope hint that r
 the ingested file set ("only the docs directory"). Programmatic mode reuses both.
 
 ```sh
-npm install && (cd tui && npm install)   # once
-npm link                                 # optional: installs the `aitm` command
-npm run tui -- [source ...]
+npm run tui -- [source ...]              # source checkout
 
 aitm tui                                 # current directory
 aitm tui docs/arch.md spec.pdf           # specific files
@@ -185,7 +209,7 @@ aitm tui https://github.com/owner/repo   # shallow-cloned, clone removed after
 ```
 
 API keys come from `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the TUI's own key file;
-the desktop app's OS-keychain vault is Electron-only. See `tui/README.md`.
+the desktop app's OS-keychain vault is Electron-only. See `packages/cli/docs/tui.md`.
 
 ## Local web UI
 
@@ -203,7 +227,8 @@ npm run web        # equivalent to: aitm web
 Projects and settings are shared with the desktop app and the TUI; API keys come from
 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the same key file `aitm-tui` uses (the desktop
 app's OS-keychain vault is Electron-only). Since there is no authentication, do not bind
-it to a non-loopback address; forward the port over SSH instead. See `server/README.md`.
+it to a non-loopback address; forward the port over SSH instead. See
+`packages/cli/docs/server.md`.
 
 ## Programmatic CLI
 
@@ -240,7 +265,7 @@ curl -sS -X POST http://127.0.0.1:8790/api/rpc \
 The command interface includes `pipeline.step` and `pipeline.run`; live provider
 progress is available from `GET /api/stream`. This is still AiTM's local, single-user
 server: there is no built-in authentication. Keep it on loopback or put it behind an
-authenticated TLS tunnel/proxy. See `server/README.md` for the complete surface.
+authenticated TLS tunnel/proxy. See `packages/cli/docs/server.md` for the complete surface.
 
 ## Develop
 
@@ -248,8 +273,10 @@ authenticated TLS tunnel/proxy. See `server/README.md` for the complete surface.
 npm install
 npm run dev        # launch with devtools
 npm start          # launch
+npm run aitm -- --help
 npm run check      # syntax check
 npm test           # unit tests
+npm run pack:check # verify published package contents
 ```
 
 ## Build installers
@@ -261,20 +288,33 @@ npm run dist:win    # Windows NSIS             (unsigned, untested)
 npm run dist:linux  # AppImage + .deb          (unsigned, untested)
 ```
 
-macOS signing & notarization auto-enable when `APPLE_TEAM_ID` (and notarization
-credentials) are present in the environment — see [electron-builder.js](electron-builder.js).
-Plain `npm run dist` produces an unsigned local build.
+Local builds are unsigned. Release CI requires all signing and notarization credentials
+and refuses to publish without them; see [electron-builder.js](electron-builder.js).
 
 The Windows and Linux targets remain configured so a local build works, but they are not
 signed, not tested, and not published to releases.
 
 ## Release (CI)
 
-Pushing a `v*` tag runs [.github/workflows/release.yml](.github/workflows/release.yml):
-it builds the **macOS** installer on a `macos-latest` runner and publishes it to a
-GitHub Release. Windows and Linux are deliberately not built in CI (unsigned and
-untested — see above). Set these repo secrets for a signed + notarized macOS build (all
-optional; without them the mac build is unsigned):
+All four manifests and the lockfile use one version. Set it with:
+
+```sh
+npm run version:set -- 0.3.1
+npm install --package-lock-only
+npm run verify:release -- v0.3.1
+```
+
+Pushing the matching `v*` tag runs [.github/workflows/release.yml](.github/workflows/release.yml).
+The workflow installs from the lockfile, runs syntax checks, all tests, verifies package
+contents, and rejects a tag/version mismatch before publishing anything. It then:
+
+- publishes the engine, shared workbench, and Electron-free `@oak-security/aitm` CLI to
+  GitHub Packages;
+- builds an explicit Apple Silicon (`arm64`) desktop artifact; and
+- publishes a non-draft GitHub Release containing the signed and notarized DMG/ZIP.
+
+Windows and Linux are deliberately not built in CI. All of these repository secrets are
+required; a release fails rather than silently producing an unsigned macOS build:
 
 | Secret | Meaning |
 | --- | --- |
@@ -285,30 +325,19 @@ optional; without them the mac build is unsigned):
 | `APPLE_TEAM_ID` | team id (e.g. `V863M8NPN9`); also enables notarization |
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.3.1 && git push origin v0.3.1
 ```
 
 Export the cert for `MAC_CSC_LINK`: `base64 -i DeveloperID.p12 | pbcopy`.
-
-## Auto-update
-
-The app checks GitHub Releases on launch via `electron-updater` (packaged builds only).
-Because this repo is **private**, release assets are not anonymously downloadable, so
-auto-update is a no-op until one of:
-
-- the repo (or a release mirror) is made public, or
-- a public update feed is used instead (point `publish` in `electron-builder.js` at a
-  `generic` provider — e.g. an R2/S3 bucket — and upload the `latest*.yml` + installers).
-
-Until then, distribute by handing out the installer; the updater fails quietly. Only the
-macOS build has a feed (`latest-mac.yml`) at all.
 
 ## Documentation
 
 - [AGENT.md](AGENT.md) — build/run conventions and the security/branding invariants.
 - [SPEC.md](SPEC.md) — product and technical specification.
-- [tui/README.md](tui/README.md) — the terminal frontend.
-- [server/README.md](server/README.md) — the local web and API-server adapters.
+- [packages/engine/README.md](packages/engine/README.md) — the UI-independent engine.
+- [packages/cli/README.md](packages/cli/README.md) — the separately installed CLI.
+- [packages/cli/docs/tui.md](packages/cli/docs/tui.md) — the terminal frontend.
+- [packages/cli/docs/server.md](packages/cli/docs/server.md) — web and server adapters.
 
 ## Data location
 

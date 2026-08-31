@@ -1,0 +1,20 @@
+{
+  "name": "@oak-security/aitm-engine",
+  "version": "0.3.0",
+  "description": "UI-independent TRACE threat-modeling engine for AiTM.",
+  "license": "UNLICENSED",
+  "author": { "name": "Oak Security", "email": "info@oaksecurity.io" },
+  "main": "src/index.js",
+  "files": ["src/**/*", "README.md"],
+  "engines": { "node": ">=20" },
+  "repository": { "type": "git", "url": "git+https://github.com/oak-security/aitm.git" },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
+  "dependencies": {
+    "mammoth": "^1.9.0",
+    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.18.0"
+  }
+}

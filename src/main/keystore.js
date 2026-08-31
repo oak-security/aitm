@@ -3,7 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { app, safeStorage } = require("electron");
-const { appError, assertString } = require("./util");
+const { util: { appError, assertString } } = require("@oak-security/aitm-engine");
 
 // Per-provider API keys. The keystore file holds an encrypted JSON map
 // { openai: "...", anthropic: "..." }. Keys live only here: encrypted at rest via the

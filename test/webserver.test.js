@@ -16,7 +16,7 @@ process.env.AITM_TUI_CONFIG_DIR = tmpKeys;
 delete process.env.OPENAI_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 
-const srv = (p) => import(path.join(__dirname, "..", "server", "src", p));
+const srv = (p) => import(path.join(__dirname, "..", "packages", "cli", "src", "server", p));
 
 test("ingest: sanitizeRel blocks traversal and absolute paths", async () => {
   const { sanitizeRel } = await srv("ingest.js");
@@ -72,7 +72,7 @@ test("core: web server shares the desktop app's project store", async () => {
 
 test("contract: web-api.js exposes every api.* method the renderer calls", () => {
   const vm = require("node:vm");
-  const shimCode = fs.readFileSync(path.join(__dirname, "..", "server", "web", "web-api.js"), "utf8");
+  const shimCode = fs.readFileSync(path.join(__dirname, "..", "packages", "cli", "web", "web-api.js"), "utf8");
   const sandbox = {
     window: {},
     document: { addEventListener() {}, createElement: () => ({ style: {} }), body: { appendChild() {}, classList: { add() {} } } },
@@ -87,7 +87,7 @@ test("contract: web-api.js exposes every api.* method the renderer calls", () =>
   const api = sandbox.window.api;
   assert.ok(api, "window.api defined");
 
-  const appJs = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const appJs = fs.readFileSync(path.join(__dirname, "..", "packages", "workbench", "renderer", "app.js"), "utf8");
   const used = new Set();
   for (const m of appJs.matchAll(/\bapi\.([a-zA-Z]+)\.([a-zA-Z]+)\(/g)) used.add(`${m[1]}.${m[2]}`);
   assert.ok(used.size > 20, "found renderer call sites");
@@ -99,8 +99,8 @@ test("contract: web-api.js exposes every api.* method the renderer calls", () =>
 });
 
 test("renderer: no hosted-build branches remain", () => {
-  const appJs = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
-  const webApi = fs.readFileSync(path.join(__dirname, "..", "server", "web", "web-api.js"), "utf8");
+  const appJs = fs.readFileSync(path.join(__dirname, "..", "packages", "workbench", "renderer", "app.js"), "utf8");
+  const webApi = fs.readFileSync(path.join(__dirname, "..", "packages", "cli", "web", "web-api.js"), "utf8");
   assert.ok(!/AITM_HOSTED|\bHOSTED\b/.test(appJs), "renderer is host-agnostic (feature detection only)");
   assert.ok(!/AITM_HOSTED|hosted\.css|\/auth\//.test(webApi), "web shim has no hosted/auth hooks");
 });

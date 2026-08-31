@@ -1,47 +1,75 @@
 name: release
 
-# Build the signed + notarized macOS installer on a version tag and publish it to a
-# GitHub Release (which is also the electron-updater feed).
-#
-# macOS is the only platform we ship binaries for: the Windows and Linux builds are
-# unsigned and untested, so they are documented as build-from-source instructions in
-# the README instead of being published here.
-#
-# Required repo secrets for a signed + notarized build (all optional — without them the
-# build is produced unsigned):
-#   MAC_CSC_LINK              base64 of the Developer ID Application .p12
-#   MAC_CSC_KEY_PASSWORD      password for that .p12
-#   APPLE_ID                  Apple ID email
-#   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that Apple ID
-#   APPLE_TEAM_ID             10-char team id (e.g. V863M8NPN9) — also enables notarization
-
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
-  build:
-    runs-on: macos-latest
+  verify:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
       - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run pack:check
+      - run: npm run verify:release -- "${GITHUB_REF_NAME}"
 
-      - name: Build and publish
+  publish-cli:
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@oak-security"
+      - run: npm ci
+      - run: npm publish --workspace @oak-security/aitm-engine
+      - run: npm publish --workspace @oak-security/aitm-workbench
+      - run: npm publish --workspace @oak-security/aitm
+
+  publish-desktop:
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify signing and notarization secrets
         shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          set -x
-          node --version
-          node node_modules/electron-builder/cli.js --mac --publish always
+          missing=0
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required release secret: ${name}" >&2
+              missing=1
+            fi
+          done
+          exit "${missing}"
+      - name: Build signed, notarized Apple Silicon release
+        run: npm run publish:ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}

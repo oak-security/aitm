@@ -1,8 +1,10 @@
 "use strict";
 
 const { dialog, BrowserWindow } = require("electron");
-const { buildFolderDigest, buildFileDigest } = require("./digest");
-const { appError } = require("../util");
+const {
+  digest: { buildFolderDigest, buildFileDigest },
+  util: { appError }
+} = require("@oak-security/aitm-engine");
 
 async function pickFolder() {
   const win = BrowserWindow.getFocusedWindow();
