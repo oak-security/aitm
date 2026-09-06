@@ -6,13 +6,16 @@ import {
   writeFileSync,
   renameSync,
   chmodSync,
+  unlinkSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
+import { credentialPatch } from './engine/credentials.js';
 
 export const configDir = () =>
   path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'aitm');
@@ -29,28 +32,70 @@ function privateFile(file) {
   return readFileSync(file, 'utf8');
 }
 
-export function loadConfig() {
-  const packageRoot = fileURLToPath(new URL('..', import.meta.url));
-  const file = [path.resolve('.env.local'), path.join(packageRoot, '.env.local')].find((p) =>
+function storedKeys(directory) {
+  const stored = privateFile(path.join(directory, 'keys.json'));
+  try {
+    return stored ? credentialPatch(JSON.parse(stored)) : {};
+  } catch {
+    throw new Error(
+      'The saved credential file is invalid. Check keys.json in the AiTM configuration directory.',
+    );
+  }
+}
+
+export function saveKeys(patch, { directory = configDir() } = {}) {
+  const changes = credentialPatch(patch);
+  if (!Object.keys(changes).length) return;
+  const next = { ...storedKeys(directory), ...changes };
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
+  const temporary = path.join(directory, `keys-${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temporary, JSON.stringify(next), { flag: 'wx', mode: 0o600 });
+    renameSync(temporary, path.join(directory, 'keys.json'));
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary);
+  }
+}
+
+export function loadConfig({
+  env = process.env,
+  cwd = process.cwd(),
+  directory = configDir(),
+  packageRoot = fileURLToPath(new URL('..', import.meta.url)),
+} = {}) {
+  const file = [path.resolve(cwd, '.env.local'), path.join(packageRoot, '.env.local')].find((p) =>
     existsSync(p),
   );
   const local = file ? parseEnv(privateFile(file)) : {};
-  const stored = privateFile(path.join(configDir(), 'keys.json'));
-  let keys = {};
-  try {
-    if (stored) keys = JSON.parse(stored);
-  } catch {
-    throw new Error('The saved credential file is invalid JSON. Run aitm configure to replace it.');
-  }
-  const env = { ...local, ...process.env };
+  const stored = storedKeys(directory);
+  const combined = { ...local, ...env };
+  const names = { openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY' };
+  const keys = Object.fromEntries(
+    Object.entries(names).map(([provider, variable]) => [
+      provider,
+      stored[provider] || env[variable] || local[variable] || '',
+    ]),
+  );
   return {
-    keys: {
-      openai: env.OPENAI_API_KEY || keys.openai || '',
-      anthropic: env.ANTHROPIC_API_KEY || keys.anthropic || '',
-    },
-    anthropicWorkspaceId: env.ANTHROPIC_WORKSPACE_ID || '',
-    dataDir: path.resolve(env.AITM_DATA_DIR || defaultDataDir()),
-    port: Number(env.AITM_PORT || 8790),
+    keys,
+    keySources: Object.fromEntries(
+      Object.entries(names).map(([provider, variable]) => [
+        provider,
+        stored[provider]
+          ? 'saved settings'
+          : env[variable]
+            ? 'environment'
+            : local[variable]
+              ? '.env.local'
+              : 'not configured',
+      ]),
+    ),
+    keyFile: path.join(directory, 'keys.json'),
+    saveCredentials: (patch) => saveKeys(patch, { directory }),
+    anthropicWorkspaceId: stored.anthropicWorkspaceId ?? combined.ANTHROPIC_WORKSPACE_ID ?? '',
+    dataDir: path.resolve(combined.AITM_DATA_DIR || defaultDataDir()),
+    port: Number(combined.AITM_PORT || 8790),
   };
 }
 
@@ -68,23 +113,18 @@ export async function configureKeys() {
       ['openai', 'OpenAI'],
       ['anthropic', 'Anthropic'],
     ]) {
-      process.stdout.write(`${name} API key (hidden): `);
+      process.stdout.write(`${name} API key (hidden; Enter keeps existing): `);
       const key = (await input.question('')).trim();
       process.stdout.write('\n');
-      if (!key || /\s/.test(key))
-        throw new Error(`${name} key cannot be empty or contain whitespace.`);
-      keys[provider] = key;
+      if (key) Object.assign(keys, credentialPatch({ [provider]: key }));
     }
   } finally {
     input.close();
   }
-  const dir = configDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  chmodSync(dir, 0o700);
-  const temporary = path.join(dir, `keys-${process.pid}.tmp`);
-  writeFileSync(temporary, JSON.stringify(keys), { flag: 'wx', mode: 0o600 });
-  renameSync(temporary, path.join(dir, 'keys.json'));
+  saveKeys(keys);
   console.log(
-    'Keys saved privately. Restart the server to load them. Environment variables and .env.local take precedence.',
+    Object.keys(keys).length
+      ? 'Keys saved privately. Saved settings take precedence over environment variables and .env.local. Reopen a running AiTM session to load CLI changes, or use s Settings to update immediately.'
+      : 'No keys changed.',
   );
 }

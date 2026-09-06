@@ -11,6 +11,16 @@ export const rankedThreats = (project) =>
   [...(project.artifacts.stride?.data.threats || [])].sort(
     (a, b) => b.likelihood * b.impact - a.likelihood * a.impact || a.id.localeCompare(b.id),
   );
+export function validateFullTrees(data, project) {
+  const required = rankedThreats(project)
+    .slice(0, 3)
+    .map((t) => t.id);
+  insist(
+    data.trees.length === required.length &&
+      required.every((id) => data.trees.some((tree) => tree.threatId === id)),
+    `Full pipeline requires an attack tree for each top STRIDE threat: ${required.join(', ') || 'none (no threats identified)'}. Top threats cannot be omitted.`,
+  );
+}
 const setOf = (items) => new Set(items.map((x) => x.id));
 function unique(items, label) {
   insist(setOf(items).size === items.length, `Duplicate ${label} IDs.`);
@@ -55,6 +65,83 @@ export function resolveEvidence(phase, raw, project) {
   }
   visit(data);
   return { data, corrections };
+}
+
+function citationIssue(ref, files) {
+  const file = files.get(ref.fileId);
+  if (!file) return `Unknown evidence file: ${ref.fileId}.`;
+  if (ref.endLine < ref.startLine || ref.endLine > file.lines)
+    return `Evidence line range is outside its source (${file.lines} lines).`;
+  const excerpt = file.text
+    .split('\n')
+    .slice(ref.startLine - 1, ref.endLine)
+    .join('\n');
+  if (!ref.quote.trim() || !excerpt.includes(ref.quote))
+    return `Evidence quote does not match ${ref.fileId}:${ref.startLine}-${ref.endLine}. Cited text begins ${JSON.stringify(excerpt.slice(0, 300))}. Copy a short exact substring, preserve whitespace, or correct the line numbers.`;
+  return null;
+}
+
+// A questionable citation is not a broken TRACE model. Retain the claim as an
+// explicit unverified assumption; never pass the rejected quote off as evidence.
+export function deferEvidence(phase, data, project) {
+  const files = new Map(project.sources.flatMap((s) => s.files.map((f) => [f.id, f])));
+  const warnings = [];
+  function visit(value, location = phase) {
+    if (!value || typeof value !== 'object') return;
+    if ('evidence' in value && 'assumption' in value) {
+      const rejected = value.evidence.flatMap((ref, index) => {
+        const reason = citationIssue(ref, files);
+        return reason ? [{ ...ref, path: `${location}.evidence[${index}]`, reason }] : [];
+      });
+      const missing = !value.evidence.length && !value.assumption.trim();
+      if (rejected.length || missing) {
+        const claim = value.name || value.title || value.label || value.id || location;
+        const reason = rejected.length
+          ? 'Source citations could not be verified.'
+          : 'No supporting evidence or assumption was supplied.';
+        warnings.push({ path: location, claim, reason, rejectedEvidence: rejected });
+        value.evidence = value.evidence.filter((ref) => !citationIssue(ref, files));
+        value.assumption = [
+          `Evidence review required: ${reason} Treat this claim as unverified until reviewed.`,
+          value.assumption,
+        ]
+          .filter(Boolean)
+          .join('\n')
+          .slice(0, 12000);
+        if (!value.evidence.length) {
+          if ('confidence' in value) value.confidence = 'low';
+          if ('speculative' in value) value.speculative = true;
+        }
+      }
+    }
+    for (const [key, child] of Object.entries(value))
+      if (typeof child === 'object') visit(child, `${location}.${key}`);
+  }
+  visit(data);
+  return warnings;
+}
+
+export function evidenceReviewNotes(data) {
+  const notes = [];
+  function visit(value, location = '') {
+    if (!value || typeof value !== 'object') return;
+    if (
+      typeof value.assumption === 'string' &&
+      value.assumption.includes('Evidence review required:')
+    )
+      notes.push({
+        path: location,
+        claim: value.name || value.title || value.label || value.id || location,
+        note: value.assumption
+          .split('\n')
+          .find((line) => line.includes('Evidence review required:'))
+          .slice(0, 500),
+      });
+    for (const [key, child] of Object.entries(value))
+      if (typeof child === 'object') visit(child, location ? `${location}.${key}` : key);
+  }
+  visit(data);
+  return notes;
 }
 
 // Coverage is an index of threat references, not a second independent source of
@@ -106,25 +193,8 @@ export function validateArtifact(phase, raw, project) {
         evidenceErrors.push(`${location}: needs evidence or an explicit inferred assumption.`);
       for (const [index, ref] of value.evidence.entries()) {
         const at = `${location}.evidence[${index}]`;
-        const file = files.get(ref.fileId);
-        if (!file) {
-          evidenceErrors.push(`${at}: Unknown evidence file: ${ref.fileId}.`);
-          continue;
-        }
-        if (ref.endLine < ref.startLine || ref.endLine > file.lines) {
-          evidenceErrors.push(
-            `${at}: Evidence line range is outside its source (${file.lines} lines).`,
-          );
-          continue;
-        }
-        const excerpt = file.text
-          .split('\n')
-          .slice(ref.startLine - 1, ref.endLine)
-          .join('\n');
-        if (!ref.quote.trim() || !excerpt.includes(ref.quote))
-          evidenceErrors.push(
-            `${at}: Evidence quote does not match ${ref.fileId}:${ref.startLine}-${ref.endLine}. Cited text begins ${JSON.stringify(excerpt.slice(0, 300))}. Copy a short exact substring, preserve whitespace, or correct the line numbers.`,
-          );
+        const issue = citationIssue(ref, files);
+        if (issue) evidenceErrors.push(`${at}: ${issue}`);
       }
     }
     for (const [key, child] of Object.entries(value))
@@ -270,4 +340,56 @@ export function validateArtifact(phase, raw, project) {
     );
   }
   return data;
+}
+// The engine owns accumulation. Models may return only the objects discussed in
+// the current batch; keep prior validated objects unless they return an update.
+export function retainContinuation(previous, raw) {
+  const retained = [];
+  function merge(old, next, location = 'previousDraft') {
+    if (!old || !next || Array.isArray(next) || typeof next !== 'object') return next;
+    const result = structuredClone(next);
+    for (const [key, value] of Object.entries(old)) {
+      if (
+        !Array.isArray(value) ||
+        !Array.isArray(result[key]) ||
+        key === 'omitted' ||
+        !value.length
+      )
+        continue;
+      const identity = ['id', 'objectId', 'threatId'].find((field) =>
+        value.every((item) => item && typeof item === 'object' && item[field]),
+      );
+      if (!identity) continue;
+      const prior = new Map(value.map((item) => [item[identity], item]));
+      result[key] = result[key].map((item) =>
+        merge(prior.get(item?.[identity]), item, `${location}.${key}.${item?.[identity]}`),
+      );
+      for (const item of value) {
+        if (result[key].some((candidate) => candidate?.[identity] === item[identity])) continue;
+        result[key].push(structuredClone(item));
+        retained.push(`${location}.${key}.${item[identity]}`);
+      }
+    }
+    return result;
+  }
+  return { data: merge(previous, raw), retained };
+}
+
+// Check the accumulated result before publishing the completed phase.
+export function validateContinuation(previous, next, path = 'previousDraft') {
+  for (const [key, value] of Object.entries(previous)) {
+    if (!Array.isArray(value) || key === 'omitted' || !value.length) continue;
+    const identity = ['id', 'objectId', 'threatId'].find((field) =>
+      value.every((item) => item && typeof item === 'object' && item[field]),
+    );
+    if (!identity) continue;
+    for (const item of value) {
+      const kept = next[key]?.find((candidate) => candidate[identity] === item[identity]);
+      insist(
+        kept,
+        `Retain ${path}.${key} ${item[identity]} from earlier source batches; extend or revise it instead of dropping it.`,
+      );
+      validateContinuation(item, kept, `${path}.${key}.${item[identity]}`);
+    }
+  }
 }

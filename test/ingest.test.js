@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, access } from 'node:f
 import os from 'node:os';
 import path from 'node:path';
 import PDFDocument from 'pdfkit';
-import { ingest, sourceContext, safePath, LIMITS } from '../src/engine/ingest.js';
+import { ingest, sourceContext, sourceBatches, safePath, LIMITS } from '../src/engine/ingest.js';
 import { setup, finish } from './helpers.js';
 
 test('folder ingestion honors nested ignores, drops secrets/dependencies/binaries and skips symlinks', async (t) => {
@@ -80,10 +80,11 @@ test('synced snapshots reject traversal, credentials, duplicate paths and oversi
   const source = await ingest({
     kind: 'text',
     label: 'Long source',
-    text: 'x'.repeat(LIMITS.fileChars + 10),
+    text: 'x'.repeat(35000) + '\nFINAL INVARIANT: funds cannot be seized.',
   });
-  assert.equal(source.files[0].text.length, LIMITS.fileChars);
-  assert.ok(source.warnings.some((w) => w.includes('truncated')));
+  assert.ok(source.files[0].text.endsWith('FINAL INVARIANT: funds cannot be seized.'));
+  assert.ok(sourceContext({ sources: [source] })[0].text.includes('FINAL INVARIANT'));
+  assert.deepEqual(source.warnings, []);
 });
 
 test('PDF documents are extracted into source text with provenance', async () => {
@@ -112,6 +113,32 @@ test('PDF documents are extracted into source text with provenance', async () =>
   assert.equal(context.hash, source.files[0].hash);
   assert.equal(context.sourceId, source.id);
   assert.equal(context.sourceHash, source.hash);
+});
+
+test('source batching covers every character and preserves original evidence line numbers', async () => {
+  const original = [
+    'Vault holds deposits.',
+    'x'.repeat(220),
+    'FINAL invariant: no unauthorized release.',
+    '',
+  ].join('\n');
+  const source = await ingest({ kind: 'text', label: 'Complete whitepaper', text: original });
+  const batches = sourceBatches({ sources: [source] }, 80);
+  assert.ok(batches.length > 1);
+  const recovered = new Map();
+  for (const batch of batches) {
+    assert.ok(batch.reduce((n, part) => n + part.text.length, 0) <= 80);
+    for (const part of batch) {
+      assert.equal(part.id, source.files[0].id);
+      assert.equal(part.excerptOnly, false);
+      for (const numbered of part.text.split('\n')) {
+        const [, line, text] = /^(\d+): (.*)$/.exec(numbered);
+        recovered.set(Number(line), (recovered.get(Number(line)) || '') + text);
+      }
+    }
+  }
+  assert.equal([...recovered.values()].join('\n'), original);
+  assert.ok(batches.at(-1).at(-1).text.includes('FINAL invariant'));
 });
 
 test('DOCX extraction preserves text and rejects oversized archive declarations', async () => {

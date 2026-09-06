@@ -54,6 +54,8 @@ export function resolveConfig(input) {
     deepModel: config.deepModel || DEFAULT_MODELS[config.provider].deepModel,
   };
 }
+export const DEFAULT_SCOPE =
+  'Assess all added sources using TRACE. Identify threats, trust boundaries, protected assets and critical invariants. Flag undocumented assumptions and scope gaps for review.';
 export const CreateProject = object({
   name: short,
   scope: text.default(''),
@@ -67,17 +69,20 @@ export const UpdateProject = object({
 });
 export const Review = object({
   revision: z.int().min(1),
-  reviewer: short,
+  reviewer: z.string().trim().max(300).default(''),
   notes: text.default(''),
 });
 export const RunInput = object({
-  mode: z.enum(['review', 'draft']).default('review'),
+  mode: z.enum(['review', 'draft', 'full']).default('review'),
   resume: z.boolean().default(true),
   phase: PhaseId.exclude(['scope']).optional(),
+}).refine((input) => input.mode !== 'full' || !input.phase, {
+  message: 'Full pipeline runs cannot select a single phase.',
 });
 export const SourceInput = z.discriminatedUnion('kind', [
   object({ kind: z.literal('local'), path: short, label: short.optional() }),
   object({ kind: z.literal('git'), url: z.string().url().max(2000), label: short.optional() }),
+  object({ kind: z.literal('url'), url: z.string().url().max(2000), label: short.optional() }),
   object({ kind: z.literal('text'), label: short, text: z.string().min(1).max(500000) }),
   object({
     kind: z.literal('files'),

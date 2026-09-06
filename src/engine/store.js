@@ -27,7 +27,7 @@ export class Store {
       throw new AppError(
         409,
         'store_locked',
-        'Another AiTM server owns this data directory. Connect to it, or choose a different data directory.',
+        'AiTM is already open with this data directory. Close that instance first, or use --data-dir for a separate assessment store.',
       );
     }
     try {
@@ -58,7 +58,7 @@ export class Store {
         if (['queued', 'running'].includes(run.status)) {
           run.status = 'interrupted';
           run.finishedAt = now();
-          run.error = 'Server stopped during this run. Resume to retry the unfinished phase.';
+          run.error = 'AiTM stopped during this run. Resume to retry the unfinished phase.';
           run.events.push({
             id: ++run.lastEventId,
             type: 'interrupted',

@@ -1,20 +1,22 @@
 # AiTM v2 implementation and acceptance
 
-The user requested a fresh implementation: a server process owns the TRACE engine,
-with an API consumed by independent user interfaces. Iteration one ships the TUI,
+The user requested a fresh implementation and then simplified the runtime: one
+process owns the reusable TRACE engine, direct TUI and optional HTTP interface. Iteration one ships the TUI,
 launched by `aitm` (also `AITM`), with an ASCII logo. The former application remains
 in Git history; `original-spec.md` preserves its product requirements.
 
 ## Architecture
 
-- One ESM Node package; no Electron or browser workbench.
+- One ESM Node package; no Electron or separate web service.
 - `engine/`: project store, ingestion, structured provider adapters, phase registry,
   evidence validation, review decisions, job lifecycle and report assembly.
 - `api/`: versioned HTTP resources, OpenAPI contract, durable progress over SSE.
-- `client.js` and `tui/`: HTTP-only client; no project store or provider imports.
-- `cli.js`: start/attach local server, terminal UI, configuration and exports.
+- `tui/`: direct engine methods and change events. `client.js`: external API consumers.
+- `web/`: static browser workbench over the same API; no duplicate domain runtime.
+- `cli.js`: one engine/API lifetime with a TUI or browser launcher. Default project
+  chooser; optional explicit source or `--project ID`. No implicit folder intake.
 - Private atomic local persistence; engine lock prevents two writers. Restart marks
-  interrupted jobs honestly. Disconnecting a UI does not cancel server work.
+  interrupted jobs honestly. Quit saves completed work and cancels an unfinished phase.
 
 ## Acceptance checklist
 
@@ -32,11 +34,11 @@ in Git history; `original-spec.md` preserves its product requirements.
 - [x] Durable projects/runs/events, editing, approvals, import/export, Markdown/PDF.
 - [x] Versioned API validates inputs, rejects hostile browser origins/hosts, exposes
       jobs, cancellation and replayable SSE; secrets never enter responses or exports.
-- [x] `aitm` / `AITM`: server startup/attachment, logo, project selection/creation,
-      scope/source forms, provider settings, progress, review/edit, cancel, sync/export.
+- [x] `aitm` / `AITM`: project chooser and explicit-source shortcuts, logo, provider settings, progress,
+      review/edit, cancel, sync/export, and graceful shutdown.
 - [x] Automated engine/API/provider/ingestion/TUI tests and real PTY exercise.
 - [x] Live OpenAI and Anthropic pipelines with user keys on the existing Uniswap v4
-      whitepaper; Dividend was not found in the available local material.
+      whitepaper; later recovery also completed on the user’s 58-file Divigent repository.
 - [x] Updated specification, operating instructions, API docs, CI and package checks.
 
 TRACE reference: https://github.com/oak-security/TRACE/blob/main/METHODOLOGY.md
@@ -48,6 +50,30 @@ https://developers.openai.com/api/docs/models/gpt-5.6-terra
 https://developers.openai.com/api/docs/models/gpt-5.6-sol
 https://platform.claude.com/docs/en/build-with-claude/structured-outputs
 https://platform.claude.com/docs/en/models/overview
+
+## Browser iteration
+
+- [x] Bounded TUI viewport on completed-report reopen and page navigation.
+- [x] Main-branch visual style with project sidebar and all TRACE phase views.
+- [x] Source paths/URLs/uploads, saved assessment reuse, scope and artifact editors.
+- [x] Full pipeline, explicit review gates, live SSE, cancellation/resume and history.
+- [x] Evidence viewer, ranked threat filters, AND/OR trees and coordination details.
+- [x] Complete Markdown report preview/source and explicit Markdown/PDF/JSON exports.
+- [x] Private key replacement, provider/model lists and optional phase configuration.
+- [x] Revision conflicts retain user input; auxiliary settings actions preserve edits.
+- [x] API/CLI/browser regressions, desktop/mobile screenshots, real PTY screen emulation
+      and read-only viewing of the saved Divigent whitepaper report.
+
+## Projects and multi-source iteration
+
+- [x] Both launch commands start at a project chooser without importing cwd.
+- [x] New/open/rename/delete projects; JSON import and saved-project CLI shortcut.
+- [x] TUI file browser with multi-file selection, URL/path dialogs and source actions.
+- [x] Web multi-file uploads, multiline URL/path imports and per-source management.
+- [x] Atomic import batches; failed imports retain existing sources and reports.
+- [x] Bounded repository ZIP extraction for files/uploads/URLs; normal ignore rules.
+- [x] Single-page public HTML intake with no script execution or link crawling.
+- [x] Full pipeline combines all project sources; switching projects keeps jobs active.
 
 ## Verification status (2026-09-06)
 

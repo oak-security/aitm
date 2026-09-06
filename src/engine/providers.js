@@ -1,5 +1,6 @@
-import { jsonSchema, Schemas, DEFAULT_MODELS } from './schema.js';
+import { jsonSchema, Schemas, DEFAULT_MODELS, ProviderId } from './schema.js';
 import { AppError, insist } from './errors.js';
+import { credentialPatch } from './credentials.js';
 
 // Claude's grammar supports fewer bounds than JSON Schema. Keep the original
 // Zod validation in the engine and convey unsupported bounds in descriptions.
@@ -79,8 +80,19 @@ export async function* readSSE(body) {
 }
 
 export class Providers {
-  constructor({ keys = {}, anthropicWorkspaceId = '', fetchImpl = fetch } = {}) {
-    this.keys = keys;
+  constructor({
+    keys = {},
+    keySources = {},
+    keyFile = null,
+    saveCredentials,
+    anthropicWorkspaceId = '',
+    fetchImpl = fetch,
+  } = {}) {
+    this.keys = { ...keys };
+    this.keySources = { ...keySources };
+    this.keyFile = keyFile;
+    this.saveCredentials = saveCredentials;
+    this.redactedKeys = new Set(Object.values(keys).filter(Boolean));
     insist(
       !anthropicWorkspaceId || /^wrkspc_[A-Za-z0-9]+$/.test(anthropicWorkspaceId),
       'ANTHROPIC_WORKSPACE_ID must be a wrkspc_ workspace ID.',
@@ -92,20 +104,148 @@ export class Providers {
     return Object.fromEntries(
       Object.entries(DEFAULT_MODELS).map(([name, models]) => [
         name,
-        { configured: Boolean(this.keys[name]), ...models },
+        {
+          configured: Boolean(this.keys[name]),
+          keySource: this.keySources[name] || (this.keys[name] ? 'session' : 'not configured'),
+          ...models,
+        },
       ]),
     );
   }
   redact(text) {
     let result = String(text);
-    for (const key of Object.values(this.keys))
-      if (key) result = result.split(key).join('[REDACTED]');
+    for (const key of this.redactedKeys) if (key) result = result.split(key).join('[REDACTED]');
     return result;
+  }
+  configure(input) {
+    const patch = credentialPatch(input);
+    if (!Object.keys(patch).length) return false;
+    // Commit to disk before changing the active credentials. Never send them to project storage.
+    try {
+      this.saveCredentials?.(patch);
+    } catch {
+      throw new AppError(
+        500,
+        'credential_save_failed',
+        'Could not save API keys. Check permissions on the AiTM configuration directory.',
+      );
+    }
+    for (const provider of ['openai', 'anthropic'])
+      if (patch[provider]) {
+        this.keys[provider] = patch[provider];
+        this.redactedKeys.add(patch[provider]);
+        this.keySources[provider] = this.saveCredentials ? 'saved settings' : 'session';
+      }
+    if (patch.anthropicWorkspaceId !== undefined)
+      this.anthropicWorkspaceId = patch.anthropicWorkspaceId;
+    return true;
+  }
+  headers(provider) {
+    return provider === 'openai'
+      ? { authorization: `Bearer ${this.keys[provider]}` }
+      : {
+          'x-api-key': this.keys[provider],
+          'anthropic-version': '2023-06-01',
+          ...(this.anthropicWorkspaceId
+            ? { 'anthropic-workspace-id': this.anthropicWorkspaceId }
+            : {}),
+        };
+  }
+  async models(provider, signal) {
+    ProviderId.parse(provider);
+    const defaults = Object.values(DEFAULT_MODELS[provider]);
+    const fallback = (notice) => ({
+      source: 'defaults',
+      models: defaults.map((id) => ({ id })),
+      notice,
+    });
+    if (!this.keys[provider])
+      return fallback('Add an API key in Settings to load account models. Showing defaults.');
+    try {
+      const requestSignal = AbortSignal.any([
+        ...(signal ? [signal] : []),
+        AbortSignal.timeout(10000),
+      ]);
+      const entries = [];
+      let cursor = '';
+      for (let page = 0; page < 10; page++) {
+        const url = new URL(
+          provider === 'openai'
+            ? 'https://api.openai.com/v1/models'
+            : 'https://api.anthropic.com/v1/models',
+        );
+        if (provider === 'anthropic') {
+          url.searchParams.set('limit', '1000');
+          if (cursor) url.searchParams.set('after_id', cursor);
+        }
+        const response = await this.fetch(url.toString(), {
+          method: 'GET',
+          headers: this.headers(provider),
+          redirect: 'error',
+          signal: requestSignal,
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          return fallback(
+            `Could not load account models (HTTP ${response.status}). Showing defaults; check the API key in Settings.`,
+          );
+        }
+        const body = await response.json();
+        insist(Array.isArray(body.data), 'Invalid model list.');
+        entries.push(...body.data.slice(0, 10000));
+        if (provider === 'openai' || !body.has_more) break;
+        insist(
+          typeof body.last_id === 'string' && body.last_id !== cursor && page < 9,
+          'Invalid model pagination.',
+        );
+        cursor = body.last_id;
+      }
+      const models = [
+        ...new Map(
+          entries
+            .filter((model) => {
+              if (
+                typeof model?.id !== 'string' ||
+                !/^[\w.:-]{1,300}$/.test(model.id) ||
+                this.redact(model.id) !== model.id
+              )
+                return false;
+              if (provider === 'anthropic')
+                return model.capabilities
+                  ? model.capabilities.structured_outputs?.supported &&
+                      model.capabilities.effort?.supported &&
+                      (!model.max_tokens || model.max_tokens >= 64000)
+                  : defaults.includes(model.id);
+              // The pipeline uses reasoning effort and strict Responses output. Exclude specialist endpoints.
+              return (
+                /^(gpt-[5-9](?:[.-]|$)|o[34](?:-|$))/.test(model.id) &&
+                !/(chat|audio|realtime|search|transcribe|tts|image|deep-research)/.test(model.id) &&
+                !/(?:^|-)(?:pro|codex)(?:-|$)/.test(model.id)
+              );
+            })
+            .map((model) => [model.id, { id: model.id }]),
+        ).values(),
+      ];
+      models.sort((a, b) => {
+        const rank = (id) => (defaults.includes(id) ? defaults.indexOf(id) : defaults.length);
+        return rank(a.id) - rank(b.id) || a.id.localeCompare(b.id);
+      });
+      return models.length
+        ? { source: 'account', models, notice: '' }
+        : fallback(
+            'No compatible models returned. Showing defaults; use the connection test to verify access.',
+          );
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return fallback(
+        'Account model lookup is unavailable. Showing defaults; refresh the model list to retry.',
+      );
+    }
   }
   assertConfigured(provider) {
     insist(
       this.keys[provider],
-      `Configure ${provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} before starting a run.`,
+      `Configure ${provider === 'openai' ? 'OpenAI' : 'Anthropic'} in s Settings → API keys, or run aitm configure, before starting a run.`,
       422,
       'missing_key',
     );
@@ -162,15 +302,7 @@ export class Providers {
           signal,
           headers: {
             'content-type': 'application/json',
-            ...(openai
-              ? { authorization: `Bearer ${this.keys[provider]}` }
-              : {
-                  'x-api-key': this.keys[provider],
-                  'anthropic-version': '2023-06-01',
-                  ...(this.anthropicWorkspaceId
-                    ? { 'anthropic-workspace-id': this.anthropicWorkspaceId }
-                    : {}),
-                }),
+            ...this.headers(provider),
           },
           body: JSON.stringify(body),
         },

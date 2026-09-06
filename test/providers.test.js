@@ -29,6 +29,87 @@ const request = {
   signal: new AbortController().signal,
 };
 
+test('model discovery authenticates, filters specialist models, paginates Claude, and falls back safely', async () => {
+  const requests = [];
+  const providers = new Providers({
+    keys: { openai: 'private-openai', anthropic: 'private-anthropic' },
+    anthropicWorkspaceId: 'wrkspc_test',
+    fetchImpl: async (url, options) => {
+      requests.push({ url, ...options });
+      if (url.includes('openai.com'))
+        return Response.json({
+          data: [
+            { id: 'gpt-5.6-sol' },
+            { id: 'gpt-5.6-terra' },
+            { id: 'gpt-5.6-terra' },
+            { id: 'gpt-6-astra' },
+            { id: 'gpt-5-chat-latest' },
+            { id: 'gpt-5.4-pro' },
+            { id: 'gpt-5-codex' },
+            { id: 'text-embedding-3-large' },
+            { id: 'gpt-5-private-openai' },
+          ],
+        });
+      if (!url.includes('after_id'))
+        return Response.json({
+          data: [{ id: 'claude-sonnet-5' }],
+          has_more: true,
+          last_id: 'claude-sonnet-5',
+        });
+      return Response.json({
+        data: [{ id: 'claude-opus-5' }, { id: 'claude-legacy' }],
+        has_more: false,
+      });
+    },
+  });
+  const openai = await providers.models('openai');
+  assert.deepEqual(
+    openai.models.map((m) => m.id),
+    ['gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-6-astra'],
+  );
+  assert.equal(requests[0].headers.authorization, 'Bearer private-openai');
+  assert.equal(requests[0].redirect, 'error');
+  const claude = await providers.models('anthropic');
+  assert.equal(claude.models.length, 2);
+  assert.equal(requests[1].headers['anthropic-workspace-id'], 'wrkspc_test');
+  assert.ok(requests[2].url.includes('after_id=claude-sonnet-5'));
+  providers.fetch = async () => new Response('private-openai', { status: 401 });
+  const fallback = await providers.models('openai');
+  assert.equal(fallback.source, 'defaults');
+  assert.match(fallback.notice, /401/);
+  assert.ok(!JSON.stringify(fallback).includes('private-openai'));
+  const empty = new Providers({
+    fetchImpl: () => {
+      throw new Error('must not fetch without keys');
+    },
+  });
+  assert.equal((await empty.models('openai')).source, 'defaults');
+});
+
+test('credential replacement changes subsequent requests and redacts current and retired keys', async () => {
+  const headers = [];
+  const providers = new Providers({
+    keys: { openai: 'first-key', anthropic: 'other-key' },
+    fetchImpl: async (_, options) => {
+      headers.push(options.headers.authorization);
+      return response([
+        { type: 'response.output_text.delta', delta: '{"ok":true}' },
+        { type: 'response.completed', response: { status: 'completed' } },
+      ]);
+    },
+  });
+  await providers.call({ ...request, provider: 'openai' });
+  providers.configure({ openai: 'replacement-key' });
+  await providers.call({ ...request, provider: 'openai' });
+  assert.deepEqual(headers, ['Bearer first-key', 'Bearer replacement-key']);
+  assert.equal(providers.keys.anthropic, 'other-key');
+  assert.equal(
+    providers.redact('first-key replacement-key other-key'),
+    '[REDACTED] [REDACTED] [REDACTED]',
+  );
+  assert.doesNotMatch(JSON.stringify(providers.status()), /first-key|replacement-key|other-key/);
+});
+
 test('OpenAI sends strict Responses schema, no storage, and parses fragmented UTF-8 SSE', async () => {
   let captured;
   const providers = new Providers({

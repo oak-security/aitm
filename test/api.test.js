@@ -4,6 +4,21 @@ import http from 'node:http';
 import { setup, serve } from './helpers.js';
 import { ApiClient } from '../src/client.js';
 
+test('API exposes the same provider model catalog and credential status without exposing keys', async (t) => {
+  const { engine, providers } = await setup(t);
+  providers.fetch = async () =>
+    Response.json({ data: [{ id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }] });
+  const { request } = await serve(t, engine);
+  providers.configure({ openai: 'replacement-private-key' });
+  const catalog = await request('GET', '/v1/providers/openai/models');
+  assert.equal(catalog.status, 200);
+  assert.equal(catalog.body.source, 'account');
+  assert.equal(catalog.body.models.length, 2);
+  const status = await request('GET', '/v1/providers');
+  assert.equal(status.body.openai.configured, true);
+  assert.doesNotMatch(JSON.stringify([status, catalog]), /replacement-private-key/);
+});
+
 test('HTTP lifecycle, OpenAPI, replayable SSE, editing and report export', async (t) => {
   const { engine, p } = await setup(t);
   const { url, request } = await serve(t, engine),
@@ -122,4 +137,14 @@ test('API supports source snapshot synchronization and cancellation', async (t) 
   assert.equal((await request('POST', `${base}/runs`, { mode: 'draft' })).status, 409);
   const cancelled = await request('POST', `${base}/runs/${run.body.id}/cancel`, {});
   assert.equal(cancelled.body.status, 'cancelled');
+});
+
+test('full pipeline remains available to independent API clients', async (t) => {
+  const { engine, p } = await setup(t);
+  const { request } = await serve(t, engine);
+  const full = await request('POST', `/v1/projects/${p.id}/runs`, { mode: 'full' });
+  assert.equal(full.status, 202);
+  await engine.active.get(p.id)?.task;
+  assert.equal(engine.getRun(p.id, full.body.id).status, 'completed');
+  assert.equal(engine.get(p.id).artifacts.report.status, 'draft');
 });

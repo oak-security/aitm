@@ -13,8 +13,12 @@ import {
   Schemas,
   jsonSchema,
   enabledPhases,
+  DEFAULT_SCOPE,
 } from '../engine/schema.js';
 import { markdownReport, pdfReport } from '../engine/report.js';
+import { openAssessment } from '../assessments.js';
+import { sourceInput } from '../source-input.js';
+import { serveWeb } from './web.js';
 
 const MAX_BODY = 16 * 1024 * 1024;
 const json = (res, status, body) => {
@@ -28,6 +32,7 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     'AiTM is a single-user local server. Bind to loopback only.',
   );
   const streams = new Set();
+  const shutdown = new AbortController();
   const routes = [];
   const route = (method, path, summary, body, handler) =>
     routes.push({
@@ -45,13 +50,49 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     apiVersion: 1,
     pid: process.pid,
     dataDir: engine.store.directory,
+    cwd: process.cwd(),
+    keyFile: engine.providers.keyFile,
   }));
   route('GET', '/v1/meta', 'TRACE phase registry and artifact schemas', null, () => ({
     phases: PHASES,
+    defaultScope: DEFAULT_SCOPE,
     schemas: Object.fromEntries(Object.entries(Schemas).map(([k, v]) => [k, jsonSchema(v)])),
   }));
   route('GET', '/v1/providers', 'Provider configuration (no credentials)', null, () =>
     engine.providers.status(),
+  );
+  route(
+    'PUT',
+    '/v1/providers/:provider/credentials',
+    'Save or replace a private provider key',
+    z.strictObject({
+      apiKey: z.string().max(2048).optional(),
+      workspaceId: z.string().max(300).optional(),
+    }),
+    ({ params, body }) => {
+      const provider = parse(ProviderId, params.provider);
+      insist(
+        body.apiKey !== undefined || body.workspaceId !== undefined,
+        'Provide a key or workspace setting.',
+      );
+      insist(
+        provider === 'anthropic' || body.workspaceId === undefined,
+        'Workspace ID is an Anthropic setting.',
+      );
+      engine.providers.configure({
+        ...(body.apiKey !== undefined ? { [provider]: body.apiKey } : {}),
+        ...(body.workspaceId !== undefined ? { anthropicWorkspaceId: body.workspaceId } : {}),
+      });
+      engine.events.emit('change', null);
+      return engine.providers.status();
+    },
+  );
+  route(
+    'GET',
+    '/v1/providers/:provider/models',
+    'List account models or offline defaults',
+    null,
+    ({ params }) => engine.providers.models(parse(ProviderId, params.provider), shutdown.signal),
   );
   route(
     'POST',
@@ -62,10 +103,27 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
       engine.providers.test(
         parse(ProviderId, params.provider),
         body.model,
-        AbortSignal.timeout(30000),
+        AbortSignal.any([shutdown.signal, AbortSignal.timeout(30000)]),
       ),
   );
   route('GET', '/v1/projects', 'List projects', null, () => engine.list());
+  route(
+    'POST',
+    '/v1/projects/open',
+    'Open or reuse an assessment from one source',
+    z.strictObject({ source: z.union([z.string().min(1).max(2000), SourceInput]) }),
+    ({ body }) => {
+      let input = body.source;
+      if (typeof input === 'string' || input === undefined) {
+        try {
+          input = sourceInput(input);
+        } catch (error) {
+          throw new AppError(422, 'invalid_source', error.message);
+        }
+      }
+      return openAssessment(engine, input);
+    },
+  );
   route('POST', '/v1/projects', 'Create a project', CreateProject, ({ body }) =>
     engine.create(body),
   );
@@ -94,8 +152,50 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     engine.remove(params.projectId);
     return { deleted: true };
   });
+  route(
+    'PUT',
+    '/v1/projects/:projectId/source',
+    'Replace the primary source using a path or URL',
+    z.strictObject({ source: z.string().min(1).max(2000) }),
+    ({ params, body }) => {
+      let input;
+      try {
+        input = sourceInput(body.source);
+      } catch (error) {
+        throw new AppError(422, 'invalid_source', error.message);
+      }
+      const project = engine.get(params.projectId);
+      insist(
+        project.sources.length <= 1,
+        'This imported assessment has multiple sources. Remove extra snapshots before replacing its primary source.',
+      );
+      return engine.addSource(project.id, input, project.sources[0]?.id);
+    },
+  );
   route('GET', '/v1/projects/:projectId/phases', 'Get enabled TRACE phases', null, ({ params }) =>
     enabledPhases(engine.get(params.projectId)),
+  );
+  route(
+    'POST',
+    '/v1/projects/:projectId/sources/import',
+    'Import multiple explicit sources atomically',
+    z.strictObject({
+      sources: z
+        .array(z.union([z.string().min(1).max(2000), SourceInput]))
+        .min(1)
+        .max(100),
+    }),
+    ({ params, body }) => {
+      const inputs = body.sources.map((source) => {
+        if (typeof source !== 'string') return source;
+        try {
+          return sourceInput(source);
+        } catch (error) {
+          throw new AppError(422, 'invalid_source', error.message);
+        }
+      });
+      return engine.addSources(params.projectId, inputs);
+    },
   );
   route(
     'POST',
@@ -108,8 +208,18 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     'PUT',
     '/v1/projects/:projectId/sources/:sourceId',
     'Replace a source snapshot and invalidate dependent analysis',
-    SourceInput,
-    ({ params, body }) => engine.addSource(params.projectId, body, params.sourceId),
+    z.union([SourceInput, z.strictObject({ source: z.string().min(1).max(2000) })]),
+    ({ params, body }) => {
+      let input = body;
+      if (body.source !== undefined) {
+        try {
+          input = sourceInput(body.source);
+        } catch (error) {
+          throw new AppError(422, 'invalid_source', error.message);
+        }
+      }
+      return engine.addSource(params.projectId, input, params.sourceId);
+    },
   );
   route(
     'POST',
@@ -273,6 +383,34 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
       },
     }),
   );
+  route(
+    'GET',
+    '/v1/events',
+    'Watch project and provider changes; refetch after reconnect',
+    null,
+    ({ res }) => {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      streams.add(res);
+      const send = (projectId) => {
+        if (res.destroyed) return;
+        if (res.writableLength > 1024 * 1024) return res.destroy();
+        res.write(`data: ${JSON.stringify({ projectId })}\n\n`);
+      };
+      send(null);
+      engine.events.on('change', send);
+      const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 15000);
+      heartbeat.unref();
+      res.on('close', () => {
+        clearInterval(heartbeat);
+        streams.delete(res);
+        engine.events.off('change', send);
+      });
+    },
+  );
   const server = http.createServer(async (req, res) => {
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('cache-control', 'no-store');
@@ -300,6 +438,7 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
           'forbidden',
         );
       const url = new URL(req.url, `http://${req.headers.host}`);
+      if (await serveWeb(req, res, url.pathname)) return;
       const selected = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
       insist(selected, 'API route not found. See /v1/openapi.json.', 404, 'not_found');
       const matches = selected.pattern.exec(url.pathname);
@@ -367,9 +506,12 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     url: `http://${host === '::1' ? '[::1]' : host}:${address.port}`,
     server,
     close: async () => {
+      shutdown.abort();
       for (const res of streams) res.end();
-      server.closeIdleConnections();
-      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => {
+        server.close(resolve);
+        server.closeAllConnections();
+      });
     },
   };
 }

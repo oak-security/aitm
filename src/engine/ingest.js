@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 import ignore from 'ignore';
 import { insist, parse } from './errors.js';
 import { SourceInput } from './schema.js';
+import { downloadDocument } from './download.js';
+import { readZip } from './zip.js';
 
 const exec = promisify(execFile);
 const SKIP = new Set([
@@ -27,15 +29,15 @@ const SKIP = new Set([
 const SECRET =
   /^(\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx)|(?:keys|credentials|secrets)(?:\..*)?|id_rsa|id_ed25519)$/i;
 const BINARY =
-  /\.(?:png|jpe?g|gif|webp|ico|woff2?|ttf|otf|zip|gz|tar|7z|exe|dll|so|dylib|mp[34]|mov|docm|xlsm|doc|xlsx?|pptx?)$/i;
+  /\.(?:png|jpe?g|gif|webp|ico|woff2?|ttf|otf|zip|gz|tgz|tar|7z|exe|dll|so|dylib|mp[34]|mov|docm|xlsm|doc|xlsx?|pptx?)$/i;
 export const LIMITS = Object.freeze({
   files: 1000,
   projectFiles: 2000,
   fileBytes: 8 * 1024 * 1024,
   totalBytes: 32 * 1024 * 1024,
-  fileChars: 30000,
-  sourceChars: 500000,
-  projectChars: 1000000,
+  fileChars: 8 * 1024 * 1024,
+  sourceChars: 32 * 1024 * 1024,
+  projectChars: 32 * 1024 * 1024,
 });
 export const hash = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -133,12 +135,15 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
       warn(`${name}: no extractable text (scanned documents require OCR).`);
       return;
     }
-    const text = original.slice(
-      0,
-      Math.max(0, Math.min(LIMITS.fileChars, LIMITS.sourceChars - totalChars)),
+    insist(
+      original.length <= LIMITS.fileChars,
+      `${name}: extracted text exceeds 8 MiB. Split this document into smaller files.`,
     );
-    if (text.length !== original.length)
-      warn(`${name}: excerpt truncated (${text.length}/${original.length} characters).`);
+    insist(
+      totalChars + original.length <= LIMITS.sourceChars,
+      'Extracted source text exceeds 32 MiB. Narrow the selected source.',
+    );
+    const text = original;
     totalChars += text.length;
     if (text)
       files.push({
@@ -149,6 +154,30 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
         text,
         lines: text.split('\n').length,
       });
+  }
+  async function archive(buffer, prefix = '') {
+    insist(buffer.length <= LIMITS.fileBytes, 'ZIP exceeds the 8 MiB upload limit.');
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'aitm-zip-'));
+    try {
+      await readZip(buffer, {
+        signal,
+        limits: LIMITS,
+        warn,
+        accept: (name) =>
+          !name
+            .split('/')
+            .some((part) => SKIP.has(part) || SECRET.test(part) || part === '__MACOSX') &&
+          !BINARY.test(name),
+        onFile: async (name, content) => {
+          const file = path.join(directory, prefix, name);
+          await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+          await fs.writeFile(file, content, { flag: 'wx', mode: 0o600 });
+        },
+      });
+      await walk(await fs.realpath(directory));
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   }
   async function walk(root, relative = '', rules = []) {
     signal?.throwIfAborted();
@@ -164,7 +193,7 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
     const entries = (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) =>
       a.name.localeCompare(b.name),
     );
-    // Prioritize architecture evidence when extraction reaches its explicit cap.
+    // Read architecture evidence first; every accepted file is preserved in full.
     entries.sort(
       (a, b) =>
         Number(/readme|spec|architect|whitepaper/i.test(b.name)) -
@@ -226,7 +255,11 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
             /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.content),
             'Invalid base64 content.',
           );
-        await add(file.path, Buffer.from(file.content, file.encoding));
+        safePath(file.path);
+        const buffer = Buffer.from(file.content, file.encoding);
+        if (/\.zip$/i.test(file.path))
+          await archive(buffer, input.files.length > 1 ? file.path.replace(/\.zip$/i, '') : '');
+        else await add(file.path, buffer);
       }
     }
     if (input.kind === 'local') {
@@ -245,8 +278,17 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
       else {
         insist(stat.isFile(), 'Select a regular file.');
         insist(stat.size <= LIMITS.fileBytes, 'File exceeds 8 MiB.');
-        await add(path.basename(locator), await fs.readFile(locator));
+        const buffer = await fs.readFile(locator);
+        if (/\.zip$/i.test(locator)) await archive(buffer);
+        else await add(path.basename(locator), buffer);
       }
+    }
+    if (input.kind === 'url') {
+      const document = await downloadDocument(input.url, { signal, maxBytes: LIMITS.fileBytes });
+      locator = new URL(input.url).toString();
+      if (/\.zip$/i.test(document.name)) await archive(document.buffer);
+      else await add(document.name, document.buffer);
+      if (document.url !== locator) warn(`Document retrieved from ${document.url}`);
     }
     if (input.kind === 'git') {
       const url = new URL(input.url);
@@ -298,7 +340,7 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
     }
     insist(
       files.length > 0,
-      'No readable source content found. Select text/code, PDF, DOCX or a folder containing them.',
+      'No readable source content found. Select text/code, PDF, DOCX, a repository ZIP or a folder containing them.',
     );
     const sourceHash = hash(JSON.stringify(files.map((f) => [f.path, f.hash])));
     return {
@@ -317,29 +359,81 @@ export async function ingest(raw, { signal, sourceId = randomUUID(), gitRunner =
   }
 }
 
-export function sourceContext(project) {
-  const files = project.sources.flatMap((s) =>
-    s.files.map((f) => ({ ...f, sourceLabel: s.label, sourceId: s.id, sourceHash: s.hash })),
-  );
-  const weight = (file) =>
+// Compatibility with saved assessments produced before complete-source batching.
+export function needsFullSourceRun(project) {
+  if (project.sources.some((s) => s.warnings.some((w) => w.includes('excerpt truncated'))))
+    return true;
+  const ingest = project.artifacts.ingest;
+  if (!ingest || ingest.generation?.sourceCoverage?.complete) return false;
+  const files = project.sources.flatMap((s) => s.files);
+  const oldWeight = (file) =>
     /\.(md|txt|pdf|docx)$/i.test(file.path) || /readme|spec|architect|whitepaper/i.test(file.path)
       ? 32
       : 1;
-  const totalWeight = files.reduce((sum, f) => sum + weight(f), 0);
-  const allowance = (file) =>
-    Math.max(1, Math.floor((180000 * weight(file)) / Math.max(totalWeight, 1)));
-  return files.map((file) => ({
-    id: file.id,
-    source: file.sourceLabel,
-    sourceId: file.sourceId,
-    sourceHash: file.sourceHash,
-    path: file.path,
-    hash: file.hash,
-    text: file.text
-      .slice(0, allowance(file))
-      .split('\n')
-      .map((line, i) => `${i + 1}: ${line}`)
-      .join('\n'),
-    excerptOnly: file.text.length > allowance(file),
-  }));
+  const totalWeight = files.reduce((n, file) => n + oldWeight(file), 0);
+  return files.some(
+    (file) => file.text.length > Math.max(1, Math.floor((180000 * oldWeight(file)) / totalWeight)),
+  );
+}
+
+export function sourceContext(project) {
+  return project.sources.flatMap((source) =>
+    source.files.map((file) => ({
+      id: file.id,
+      source: source.label,
+      sourceId: source.id,
+      sourceHash: source.hash,
+      path: file.path,
+      hash: file.hash,
+      text: file.text
+        .split('\n')
+        .map((line, i) => `${i + 1}: ${line}`)
+        .join('\n'),
+      excerptOnly: source.warnings.some((w) => w.startsWith(`${file.path}: excerpt truncated`)),
+    })),
+  );
+}
+
+// Split provider requests, never the stored evidence. Every line/character is sent,
+// with original line numbers even when one unusually long line needs several parts.
+export function sourceBatches(project, limit = 180000) {
+  insist(Number.isSafeInteger(limit) && limit >= 30, 'Invalid source batch size.');
+  const parts = [];
+  for (const file of sourceContext(project)) {
+    const chunks = [];
+    let chunk = '';
+    for (const numbered of file.text.split('\n')) {
+      const colon = numbered.indexOf(': ');
+      const prefix = numbered.slice(0, colon + 2);
+      let line = numbered.slice(colon + 2);
+      do {
+        const available = limit - prefix.length - 1;
+        const piece = prefix + line.slice(0, available);
+        if (chunk && chunk.length + piece.length + 1 > limit) {
+          chunks.push(chunk);
+          chunk = '';
+        }
+        chunk += (chunk ? '\n' : '') + piece;
+        line = line.slice(available);
+      } while (line.length);
+    }
+    if (chunk) chunks.push(chunk);
+    chunks.forEach((text, index) =>
+      parts.push({ ...file, text, part: index + 1, parts: chunks.length }),
+    );
+  }
+  const batches = [];
+  let batch = [],
+    size = 0;
+  for (const part of parts) {
+    if (batch.length && size + part.text.length > limit) {
+      batches.push(batch);
+      batch = [];
+      size = 0;
+    }
+    batch.push(part);
+    size += part.text.length;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
 }

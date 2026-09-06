@@ -9,13 +9,23 @@ import {
   UpdateProject,
   Review,
   RunInput,
+  SourceInput,
   PhaseId,
   Schemas,
   enabledPhases,
   resolveConfig,
 } from './schema.js';
-import { ingest, LIMITS } from './ingest.js';
-import { validateArtifact, resolveEvidence, resolveCoverage } from './validate.js';
+import { ingest, LIMITS, sourceBatches, needsFullSourceRun } from './ingest.js';
+import {
+  validateArtifact,
+  validateContinuation,
+  retainContinuation,
+  validateFullTrees,
+  resolveEvidence,
+  deferEvidence,
+  evidenceReviewNotes,
+  resolveCoverage,
+} from './validate.js';
 import { promptFor } from './prompts.js';
 import { Providers } from './providers.js';
 
@@ -26,6 +36,7 @@ const artifact = (data, runId = null, generation = null) => ({
   generatedAt: now(),
   runId,
   generation,
+  reviewNotes: evidenceReviewNotes(data),
 });
 const terminal = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'awaiting_review']);
 
@@ -48,7 +59,9 @@ export class Engine {
     return this.store.list();
   }
   save(p) {
-    return this.store.save(JSON.parse(this.providers.redact(JSON.stringify(p))));
+    const saved = this.store.save(JSON.parse(this.providers.redact(JSON.stringify(p))));
+    this.events.emit('change', saved.id);
+    return saved;
   }
   idle(id) {
     insist(!this.closed, 'Engine is stopping.', 503);
@@ -115,9 +128,12 @@ export class Engine {
       p.scope = input.scope;
       this.inventory(p);
     }
-    if (input.config && JSON.stringify(input.config) !== JSON.stringify(p.config)) {
-      p.config = resolveConfig(input.config);
-      this.invalidate(p, 'ingest');
+    if (input.config) {
+      const config = resolveConfig(input.config);
+      if (Object.entries(config).some(([key, value]) => value !== p.config[key])) {
+        p.config = config;
+        this.invalidate(p, 'ingest');
+      }
     }
     this.audit(p, 'project.updated', 'Project settings or scope updated.');
     return this.save(p);
@@ -125,6 +141,7 @@ export class Engine {
   remove(id) {
     this.idle(id);
     this.store.remove(id);
+    this.events.emit('change', id);
   }
   async addSource(id, input, replaceId = null) {
     this.idle(id);
@@ -142,22 +159,7 @@ export class Engine {
         sourceId: replaceId || randomUUID(),
         signal: controller.signal,
       });
-      const sanitized = JSON.parse(this.providers.redact(JSON.stringify(source)));
-      for (const file of sanitized.files) file.lines = file.text.split('\n').length;
-      const unchanged = replaceId && p.sources.find((s) => s.id === replaceId).hash === source.hash;
-      p.sources = [...p.sources.filter((s) => s.id !== replaceId), sanitized];
-      insist(
-        p.sources.flatMap((s) => s.files).length <= LIMITS.projectFiles,
-        'Project exceeds the 2000 file limit. Narrow the source scope.',
-      );
-      insist(
-        p.sources.flatMap((s) => s.files).reduce((n, f) => n + f.text.length, 0) <=
-          LIMITS.projectChars,
-        'Project evidence exceeds 1 million characters. Narrow the source scope.',
-      );
-      if (!unchanged) this.inventory(p);
-      this.audit(p, unchanged ? 'sources.checked' : 'sources.changed', sanitized.label);
-      return this.save(p);
+      return this.saveSource(p, source, replaceId);
     })();
     this.active.set(id, { controller, task });
     try {
@@ -166,11 +168,59 @@ export class Engine {
       this.active.delete(id);
     }
   }
+  async addSources(id, raw) {
+    this.idle(id);
+    const inputs = parse(z.array(SourceInput).min(1).max(100), raw);
+    const p = this.get(id);
+    insist(p.sources.length + inputs.length <= 100, 'A project supports at most 100 sources.');
+    const controller = new AbortController();
+    const task = Promise.resolve().then(async () => {
+      for (const input of inputs) {
+        controller.signal.throwIfAborted();
+        const source = await ingest(input, { signal: controller.signal });
+        this.prepareSource(p, source, null);
+      }
+      controller.signal.throwIfAborted();
+      return this.save(p);
+    });
+    this.active.set(id, { controller, task });
+    try {
+      return await task;
+    } finally {
+      this.active.delete(id);
+    }
+  }
+  saveSource(p, source, replaceId) {
+    return this.save(this.prepareSource(p, source, replaceId));
+  }
+  prepareSource(p, source, replaceId) {
+    const sanitized = JSON.parse(this.providers.redact(JSON.stringify(source)));
+    for (const file of sanitized.files) file.lines = file.text.split('\n').length;
+    const previous = p.sources.find((s) => s.id === replaceId);
+    const unchanged =
+      previous?.hash === source.hash &&
+      previous.files.every((file, i) => file.text === sanitized.files[i]?.text);
+    p.sources = previous
+      ? p.sources.map((s) => (s.id === replaceId ? sanitized : s))
+      : [...p.sources, sanitized];
+    insist(
+      p.sources.flatMap((s) => s.files).length <= LIMITS.projectFiles,
+      'Project exceeds the 2000 file limit. Narrow the source scope.',
+    );
+    insist(
+      p.sources.flatMap((s) => s.files).reduce((n, f) => n + f.text.length, 0) <=
+        LIMITS.projectChars,
+      'Project evidence exceeds 32 MiB of text. Narrow the source scope.',
+    );
+    if (!unchanged) this.inventory(p);
+    this.audit(p, unchanged ? 'sources.checked' : 'sources.changed', sanitized.label);
+    return p;
+  }
   async syncSource(id, sourceId) {
     const source = this.get(id).sources.find((s) => s.id === sourceId);
     insist(source, 'Source not found.', 404);
     insist(
-      ['local', 'git'].includes(source.kind),
+      ['local', 'git', 'url'].includes(source.kind),
       'Replace text or synced-file sources with PUT /sources/:id.',
     );
     return this.addSource(
@@ -245,7 +295,33 @@ export class Engine {
       p.sources.length > 0 && p.scope.trim(),
       'Define a scope and add at least one source before running.',
     );
+    insist(
+      !input.phase || !needsFullSourceRun(p),
+      'Run the full pipeline to process the complete source and rebuild prerequisites before regenerating one phase.',
+      409,
+      'source_refresh_required',
+    );
     this.providers.assertConfigured(p.config.provider);
+    if (input.mode === 'full') {
+      let rebuildTrees = !p.config.trees || p.config.treeLimit !== 3 || !p.artifacts.trees;
+      if (p.artifacts.trees) {
+        try {
+          validateFullTrees(p.artifacts.trees.data, p);
+        } catch (error) {
+          if (!(error instanceof AppError)) throw error;
+          rebuildTrees = true;
+        }
+      }
+      if (rebuildTrees) this.invalidate(p, 'trees');
+      if (p.config.coordination === 'off') this.invalidate(p, 'coordination');
+      p.config = {
+        ...p.config,
+        trees: true,
+        treeLimit: 3,
+        coordination: p.config.coordination === 'off' ? 'auto' : p.config.coordination,
+      };
+      this.audit(p, 'pipeline.full', { treeLimit: 3, coordination: p.config.coordination });
+    }
     if (input.phase) {
       insist(
         enabledPhases(p).some((x) => x.id === input.phase),
@@ -270,6 +346,8 @@ export class Engine {
       mode: input.mode,
       phase: null,
       createdAt: now(),
+      startedAt: null,
+      phaseStartedAt: null,
       finishedAt: null,
       error: null,
       events: [],
@@ -298,6 +376,10 @@ export class Engine {
     const p = this.get(id),
       run = p.runs.find((r) => r.id === runId);
     run.status = status;
+    if (status === 'running') {
+      run.startedAt ||= now();
+      if (phase !== run.phase) run.phaseStartedAt = now();
+    }
     run.phase = phase;
     run.error = error;
     if (terminal.has(status)) run.finishedAt = now();
@@ -307,6 +389,52 @@ export class Engine {
   async execute(id, runId, input, signal) {
     try {
       this.status(id, runId, 'running');
+      const incomplete = this.get(id).sources.filter((source) =>
+        source.warnings.some((w) => w.includes('excerpt truncated')),
+      );
+      for (const source of incomplete) {
+        insist(
+          ['local', 'git', 'url'].includes(source.kind) && source.locator,
+          'This saved snapshot is incomplete. Replace it with the original full source before running TRACE.',
+          409,
+          'source_refresh_required',
+        );
+        this.status(id, runId, 'running', 'scope');
+        this.emit(
+          id,
+          runId,
+          'source_refresh',
+          'scope',
+          `Reading the complete source: ${source.label}`,
+        );
+        const complete = await ingest(
+          {
+            kind: source.kind,
+            label: source.label,
+            ...(source.kind === 'local' ? { path: source.locator } : { url: source.locator }),
+          },
+          { sourceId: source.id, signal },
+        );
+        signal.throwIfAborted();
+        this.saveSource(this.get(id), complete, source.id);
+      }
+      const saved = this.get(id);
+      if (needsFullSourceRun(saved)) {
+        this.invalidate(saved, 'ingest');
+        this.audit(
+          saved,
+          'analysis.source_coverage',
+          'Rebuilding analysis made from source excerpts.',
+        );
+        this.save(saved);
+        this.emit(
+          id,
+          runId,
+          'source_refresh',
+          'scope',
+          'Rebuilding saved analysis to process every source line.',
+        );
+      }
       for (const phase of PHASES) {
         signal.throwIfAborted();
         let p = this.get(id);
@@ -318,70 +446,215 @@ export class Engine {
         if (!p.artifacts[phase.id]) {
           this.status(id, runId, 'running', phase.id);
           const deep = ['stride', 'coordination'].includes(phase.id);
-          const prompt = promptFor(phase.id, p),
-            context = JSON.parse(prompt.user);
+          const batches =
+            phase.id === 'report'
+              ? [p.sources.flatMap((s) => s.files.map((f) => ({ id: f.id, path: f.path })))]
+              : sourceBatches(p);
           const usage = { inputTokens: 0, outputTokens: 0 };
-          let result,
-            data,
-            evidenceCorrections = [],
-            coverageCorrections = [],
-            attempts = 0;
-          for (; attempts < 2; attempts++) {
-            result = await this.providers.call({
-              provider: p.config.provider,
-              model: deep ? p.config.deepModel : p.config.fastModel,
-              phase: phase.id,
-              effort: p.config.effort,
-              ...prompt,
-              user: JSON.stringify(context),
-              signal,
-              onProgress: (progress) =>
-                this.emit(id, runId, 'progress', phase.id, `Receiving ${phase.title}`, progress),
+          const passes = [];
+          let result, data;
+          for (const [batchIndex, sources] of batches.entries()) {
+            const prompt = promptFor(phase.id, p, {
+              full: input.mode === 'full',
+              sources,
+              previousDraft: data,
+              batch: { number: batchIndex + 1, total: batches.length },
             });
-            signal.throwIfAborted();
-            p = this.get(id);
-            const run = p.runs.find((r) => r.id === runId);
-            for (const key of ['inputTokens', 'outputTokens']) {
-              usage[key] += result.usage[key];
-              run.usage[key] += result.usage[key];
-            }
-            this.save(p);
-            try {
-              const resolved = resolveEvidence(phase.id, result.data, p);
-              coverageCorrections = phase.id === 'stride' ? resolveCoverage(resolved.data, p) : [];
-              data = validateArtifact(phase.id, resolved.data, p);
-              evidenceCorrections = resolved.corrections;
-              break;
-            } catch (error) {
-              if (attempts || !(error instanceof AppError) || error.status !== 422) throw error;
-              context.correction = {
-                instruction:
-                  'Correct the previous artifact to satisfy the schema and evidence/reference checks. Return the entire corrected artifact.',
-                validationError: error.message,
-                previousArtifact: result.data,
+            const context = JSON.parse(prompt.user);
+            let evidenceCorrections = [],
+              coverageCorrections = [],
+              evidenceWarnings = [],
+              retainedFindings = [],
+              candidate = null,
+              attempts = 0;
+            for (; attempts < 2; attempts++) {
+              const batchProgress = {
+                provider: p.config.provider,
+                model: deep ? p.config.deepModel : p.config.fastModel,
+                attempt: attempts + 1,
+                batch: batchIndex + 1,
+                batches: batches.length,
               };
               this.emit(
                 id,
                 runId,
-                'validation_retry',
+                'request',
                 phase.id,
-                'Correcting an invalid artifact; it has not been published.',
-                { validationError: this.providers.redact(error.message) },
+                `${phase.id === 'ingest' ? 'Sources imported. Classifying' : 'Analysing'} source batch ${batchIndex + 1}/${batches.length} · waiting for provider response.`,
+                batchProgress,
               );
+              try {
+                result = await this.providers.call({
+                  provider: p.config.provider,
+                  model: deep ? p.config.deepModel : p.config.fastModel,
+                  phase: phase.id,
+                  effort: p.config.effort,
+                  ...prompt,
+                  user: JSON.stringify(context),
+                  signal,
+                  onProgress: (progress) =>
+                    this.emit(id, runId, 'progress', phase.id, `Receiving ${phase.title}`, {
+                      ...progress,
+                      ...batchProgress,
+                    }),
+                });
+              } catch (error) {
+                signal.throwIfAborted();
+                if (!candidate) throw error;
+                ({
+                  result,
+                  data,
+                  evidenceCorrections,
+                  coverageCorrections,
+                  evidenceWarnings,
+                  retainedFindings,
+                } = candidate);
+                this.emit(
+                  id,
+                  runId,
+                  'repair_fallback',
+                  phase.id,
+                  'The citation retry was unavailable. Continuing with the saved draft and review notes.',
+                );
+                break;
+              }
+              signal.throwIfAborted();
+              p = this.get(id);
+              const run = p.runs.find((r) => r.id === runId);
+              for (const key of ['inputTokens', 'outputTokens']) {
+                usage[key] += result.usage[key];
+                run.usage[key] += result.usage[key];
+              }
+              this.save(p);
+              this.emit(
+                id,
+                runId,
+                'validating',
+                phase.id,
+                'Validating evidence and references.',
+                batchProgress,
+              );
+              try {
+                const continuation = retainContinuation(context.previousDraft, result.data);
+                retainedFindings = continuation.retained;
+                const resolved = resolveEvidence(phase.id, continuation.data, p);
+                evidenceWarnings = deferEvidence(phase.id, resolved.data, p);
+                coverageCorrections =
+                  phase.id === 'stride' ? resolveCoverage(resolved.data, p) : [];
+                data = validateArtifact(phase.id, resolved.data, p);
+                if (context.previousDraft) validateContinuation(context.previousDraft, data);
+                if (phase.id === 'trees' && input.mode === 'full') validateFullTrees(data, p);
+                evidenceCorrections = resolved.corrections;
+                candidate = {
+                  result,
+                  data,
+                  evidenceCorrections,
+                  coverageCorrections,
+                  evidenceWarnings,
+                  retainedFindings,
+                };
+                if (evidenceWarnings.length && !attempts)
+                  throw new AppError(
+                    422,
+                    'evidence_review',
+                    evidenceWarnings
+                      .map(
+                        (warning) =>
+                          `${warning.path}: ${warning.rejectedEvidence.map((ref) => `${ref.path}: ${ref.reason}`).join('\n') || warning.reason}`,
+                      )
+                      .join('\n'),
+                  );
+                break;
+              } catch (error) {
+                if (attempts && candidate) {
+                  ({
+                    result,
+                    data,
+                    evidenceCorrections,
+                    coverageCorrections,
+                    evidenceWarnings,
+                    retainedFindings,
+                  } = candidate);
+                  this.emit(
+                    id,
+                    runId,
+                    'repair_fallback',
+                    phase.id,
+                    'Keeping the usable draft with evidence review notes. Continuing TRACE.',
+                  );
+                  break;
+                }
+                if (attempts || !(error instanceof AppError) || error.status !== 422) throw error;
+                context.correction = {
+                  instruction:
+                    'Correct the previous artifact to satisfy the schema and evidence/reference checks. Return the entire corrected artifact.',
+                  validationError: error.message,
+                  previousArtifact: result.data,
+                };
+                this.emit(
+                  id,
+                  runId,
+                  'validation_retry',
+                  phase.id,
+                  error.code === 'evidence_review'
+                    ? 'Checking source citations once more; unresolved citations will become review notes.'
+                    : 'Checking this step again before continuing.',
+                  { validationError: this.providers.redact(error.message) },
+                );
+              }
             }
+            passes.push({
+              attempts: attempts + 1,
+              evidenceCorrections,
+              coverageCorrections,
+              evidenceWarnings,
+              retainedFindings,
+            });
+            this.emit(
+              id,
+              runId,
+              'batch_complete',
+              phase.id,
+              `Source batch ${batchIndex + 1}/${batches.length} analysed${retainedFindings.length ? `; retained ${retainedFindings.length} earlier finding(s)` : ''}.`,
+              { batch: batchIndex + 1, batches: batches.length, retained: retainedFindings.length },
+            );
           }
+          signal.throwIfAborted();
           p = this.get(id);
+          const evidenceWarnings = passes.flatMap((pass) => pass.evidenceWarnings);
           p.artifacts[phase.id] = artifact(data, runId, {
             provider: result.provider,
             model: result.model,
             usage,
-            attempts: attempts + 1,
-            evidenceCorrections,
-            coverageCorrections,
+            attempts: passes.reduce((total, pass) => total + pass.attempts, 0),
+            evidenceCorrections: passes.flatMap((pass) => pass.evidenceCorrections),
+            coverageCorrections: passes.flatMap((pass) => pass.coverageCorrections),
+            evidenceWarnings,
+            retainedFindings: passes.flatMap((pass) => pass.retainedFindings),
+            sourceCoverage:
+              phase.id === 'report'
+                ? { fromArtifacts: true }
+                : {
+                    complete: true,
+                    files: p.sources.flatMap((s) => s.files).length,
+                    characters: p.sources
+                      .flatMap((s) => s.files)
+                      .reduce((n, f) => n + f.text.length, 0),
+                    batches: batches.length,
+                  },
           });
           this.save(p);
+          if (evidenceWarnings.length)
+            this.emit(
+              id,
+              runId,
+              'evidence_review',
+              phase.id,
+              `${evidenceWarnings.length} claim(s) need source review. Saved as unverified assumptions; continuing TRACE.`,
+              { count: evidenceWarnings.length },
+            );
           this.emit(id, runId, 'artifact', phase.id, `${phase.title} ready for review.`);
-        }
+        } else this.emit(id, runId, 'reused', phase.id, `Using saved ${phase.title}.`);
         p = this.get(id);
         if (input.mode === 'review' && phase.gate && p.artifacts[phase.id].status !== 'approved') {
           this.status(id, runId, 'awaiting_review', phase.id);
@@ -436,7 +709,7 @@ export class Engine {
     input.config = resolveConfig(input.config);
     const sourceSchema = z.strictObject({
       id: z.uuid(),
-      kind: z.enum(['local', 'git', 'text', 'files']),
+      kind: z.enum(['local', 'git', 'url', 'text', 'files']),
       label: z.string().min(1).max(300),
       locator: z.string().nullable(),
       commit: z.string().nullable(),

@@ -1,8 +1,12 @@
 {
   "name": "@oak-security/aitm",
   "version": "2.0.0",
-  "description": "TRACE threat modelling engine, local API server and terminal client.",
+  "description": "TRACE threat modelling engine with local API, terminal and web interfaces.",
   "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./src/client.js"
+  },
   "license": "UNLICENSED",
   "bin": {
     "aitm": "src/cli.js"
@@ -23,12 +27,14 @@
     "aitm": "node src/cli.js",
     "tui": "node src/cli.js",
     "server": "node src/cli.js serve",
-    "check": "node scripts/check-syntax.js && prettier --check \"src/**/*.js\" \"test/**/*.js\" \"scripts/*.js\" package.json",
+    "check": "node scripts/check-syntax.js && prettier --check \"src/**/*.js\" \"test/**/*.js\" \"scripts/*.js\" \"src/web/**/*.{css,html}\" package.json",
     "test": "node --test test/*.test.js",
     "test:live": "node scripts/test-live.js",
     "link:cli": "npm link",
     "pack:check": "npm pack --dry-run",
-    "format": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"scripts/*.js\" package.json .prettierrc.json README.md SPEC.md AGENT.md \"docs/*.md\" .github/workflows/ci.yml"
+    "format": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"scripts/*.js\" \"src/web/**/*.{css,html}\" package.json .prettierrc.json README.md SPEC.md AGENT.md \"docs/*.md\" .github/workflows/ci.yml",
+    "web": "node src/cli.js web",
+    "test:web": "node --test test/browser/*.test.js"
   },
   "dependencies": {
     "ignore": "7.0.8",
@@ -39,10 +45,12 @@
     "pdfkit": "0.20.2",
     "proper-lockfile": "4.1.2",
     "react": "19.2.8",
+    "yauzl": "3.4.0",
     "zod": "4.5.4"
   },
   "devDependencies": {
     "ink-testing-library": "4.0.0",
+    "playwright": "1.63.0",
     "prettier": "3.9.6"
   }
 }

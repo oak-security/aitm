@@ -26,7 +26,7 @@ export class ApiClient {
       });
     } catch (error) {
       if (signal?.aborted) throw error;
-      throw new Error('Cannot reach the AiTM server. Start it with aitm serve, or check --server.');
+      throw new Error('Cannot reach the AiTM API. Open aitm or aitm serve, and check the API URL.');
     }
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
