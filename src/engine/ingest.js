@@ -364,7 +364,12 @@ export function needsFullSourceRun(project) {
   if (project.sources.some((s) => s.warnings.some((w) => w.includes('excerpt truncated'))))
     return true;
   const ingest = project.artifacts.ingest;
-  if (!ingest || ingest.generation?.sourceCoverage?.complete) return false;
+  if (
+    !ingest ||
+    ingest.generation?.sourceCoverage?.complete ||
+    ingest.generation?.sourceCoverage?.fromInventory
+  )
+    return false;
   const files = project.sources.flatMap((s) => s.files);
   const oldWeight = (file) =>
     /\.(md|txt|pdf|docx)$/i.test(file.path) || /readme|spec|architect|whitepaper/i.test(file.path)

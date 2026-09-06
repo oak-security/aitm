@@ -535,3 +535,52 @@ without aborting the run. This verifies classification with a real provider, not
 the remaining pipeline phases. The existing user-started run was monitored through
 the API without restarting it or initiating additional provider requests. Its final
 status and generation metadata are in `artifacts/qa/classification-live/status.json`.
+
+
+## Sequential handoff and reference reliability
+
+The live `test` project subsequently failed in STRIDE on
+`invariant-oracle-observation-integrity`, an earlier classification ID absent from
+the completed TRACE model. Classification took 580.8 seconds / 12 requests, and
+the following full run spent 759.6 seconds / 13 requests before failing. Each
+analysis phase reread all seven source batches; citation-only retries regenerated
+whole artifacts. This went beyond v1's model-to-STRIDE handoff.
+
+`node --test test/pipeline-reliability.test.js` first reproduced the exact unknown
+invariant failure. The regression now verifies canonical reference repair, explicit
+review notes for unresolved optional links, schema-constrained IDs, and a complete
+multi-batch source pass followed by one request per downstream phase. Ambiguous
+references are not guessed and missing model objects are not invented. Broken
+required relationships remain subject to structural validation and one repair.
+
+Classification now uses inventory/scope. Model construction reads every accepted
+source line, accumulating new/changed objects without requiring the provider to
+repeat unchanged collections. STRIDE, trees, coordination and reporting consume
+completed artifacts. Automatic coordination also considers the model's actors and
+roles, so a provisional inventory profile cannot silently disable it. A seven-batch
+repository requires 12 normal requests with coordination, versus 36 previously.
+Citation-only regeneration is removed; unresolved evidence stays explicitly
+unverified. The source snapshot is never shortened.
+
+Evidence and logs are under `artifacts/qa/pipeline-reliability/`. Live verification
+below is separate from deterministic-provider test coverage.
+
+All 94 Node tests, eight Chromium suites, syntax/format checks, package dry-run and
+whitespace checks passed. The final tests include empty incremental model collections
+in the actual provider schema and automatic coordination after an initially
+uncertain inventory classification.
+
+The user's idle local engine was restarted with the fix after backing up all nine
+projects. The real OpenAI run resumed `test` from its saved TRACE model and completed
+STRIDE, three attack trees, coordination and the report in **235.3 seconds**, using
+**four requests and zero retries** (192,378 input / 21,970 output tokens). It saved
+13 threats, three trees, eight coordination scenarios and 12 recommendations. One
+tree citation became a review note without blocking the run. Source snapshots and
+the saved scope, classification and TRACE model were compared with the backup and
+were unchanged. This measured duration covers the four resumed phases, not a fresh
+end-to-end repository analysis. The new complete-source model pass is covered by
+deterministic tests; it was not rerun against the live repository.
+
+The completed report was opened in an isolated Chromium browser, including the
+Markdown-source toggle and tool-generated disclaimer. No PDF was automatically
+exported. The local engine remains available on port 8790 with the final changes.

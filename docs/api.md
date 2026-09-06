@@ -67,7 +67,7 @@ curl -s http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs/RUN_ID
 
 SSE events have increasing integer IDs. Reconnect with `Last-Event-ID: 12` or
 `?after=12` to replay later events. Event types include `running`, `request`, `progress`,
-`validating`, `batch_complete`, `artifact`, `validation_retry`, `repair_fallback`, `evidence_review`, `reused`, `skipped`, `awaiting_review`, `completed`, `failed`,
+`validating`, `batch_complete`, `artifact`, `validation_retry`, `repair_fallback` (legacy), `evidence_review`, `reference_review`, `reused`, `skipped`, `awaiting_review`, `completed`, `failed`,
 `cancelled`, and `interrupted`. Terminal events close the stream. The server keeps
 working if a progress subscriber disconnects. Progress exposes character/token counts,
 not raw provider text. Completed phase output is available in project state.
@@ -80,8 +80,10 @@ batch and the number of earlier findings retained automatically.
 identifies a saved phase. Jobs expose `startedAt` and `phaseStartedAt` so clients can
 show elapsed time even before the first streamed output arrives.
 `evidence_review` means unresolved citation claims were saved as unverified
-assumptions; the job continues. `repair_fallback` means the engine retained a usable
-draft when its citation retry was malformed or unavailable. Artifacts expose a
+assumptions without another provider call; the job continues. `reference_review`
+marks unresolved optional model links; claims retain valid links and explicit
+uncertainty. `repair_fallback` is retained in historical runs from the former
+citation-retry workflow. Artifacts expose a
 derived `reviewNotes` array (`path`, `claim`, `note`). Rejected citations are kept in
 `generation.evidenceWarnings`, rather than in the artifact's valid evidence fields.
 `source_refresh` reports recovery of legacy truncated snapshots or rebuilding
@@ -90,15 +92,22 @@ re-read when required; portable incomplete snapshots need replacement via PUT.
 A single-phase run requiring this migration returns 409 `source_refresh_required`
 with instructions to run the full pipeline.
 
-Each analysis phase reads every accepted source character across sequential
-batches. Later batches receive the accumulated draft, and cannot silently discard
-earlier objects/findings. The engine merges keyed items from earlier batches when
-the model omits them, then validates the combined result. Omission alone does not
-cause a provider retry or a failed job. `generation.retainedFindings` records the
-retained item paths. No partial phase is published. Generation metadata records
-`sourceCoverage: { complete, files, characters, batches }`; report generation uses
-the completed artifacts and records `{ fromArtifacts: true }`. Coverage records
-delivery to the provider, not an assurance of exhaustive AI understanding.
+Classification uses the source inventory and scope. The model phase reads every
+accepted source character across sequential batches. Later batches receive the
+accumulated draft and return new or updated objects; the engine retains unchanged
+keyed findings. `generation.retainedFindings` records retained paths. No partial
+model is published. STRIDE, trees, coordination and report consume completed
+artifacts without repeated raw-source passes. Generation metadata records
+`sourceCoverage: { complete, files, characters, batches }` for model construction,
+`{ fromInventory: true }` for classification and `{ fromArtifacts: true }` downstream.
+Coverage records delivery, not an assurance of exhaustive AI understanding.
+
+Generated downstream reference fields are restricted to canonical model IDs by the
+provider schema. Local, unambiguous identity repairs are recorded in
+`generation.referenceCorrections`; unresolved optional links are recorded in
+`generation.referenceWarnings` and removed from valid link arrays with explicit
+review notes. No missing model objects are invented. Structurally invalid required
+relationships still trigger a single bounded repair before a failed phase.
 
 ## Resources
 

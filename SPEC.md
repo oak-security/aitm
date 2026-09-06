@@ -47,10 +47,13 @@ Reject unsafe/ambiguous paths, encrypted entries and special devices. Skip symli
 and nested archives; remove temporary extraction files even on failure/cancellation.
 Accepted extracted text is preserved in full, never sliced to fit a prompt. Reject
 oversized direct documents explicitly; show skipped folder files in Scope diagnostics.
-Each analysis phase reads all accepted text in sequential source batches, carrying
-its accumulated draft and stable object/finding IDs forward. Publish only the final
-validated artifact after all batches finish. Record source coverage and batch counts
-in generation metadata. Report synthesis uses the completed artifacts.
+Classification is a quick inventory/scope pass, without candidate extraction. TRACE
+model construction reads all accepted text in sequential source batches, carrying
+its accumulated draft and stable object IDs forward. Ask for new or changed objects
+only, and retain unchanged objects in the engine. Publish the validated model only
+after all batches finish. STRIDE, trees, coordination and report synthesis use
+completed artifacts, without rereading source batches. Record the input basis and
+full source coverage in generation metadata.
 The engine merges omitted earlier keyed objects into each new draft before
 validation. Keep updated fields from the new batch, retain absent earlier items
 (including nested tree nodes), and record retained paths. Omission alone must not
@@ -76,23 +79,25 @@ Single-phase reruns of these assessments require a complete pipeline run first.
 | Phase          | Artifact                                                                                             | Gate             | Optionality                               |
 | -------------- | ---------------------------------------------------------------------------------------------------- | ---------------- | ----------------------------------------- |
 | 0 scope        | Assessment boundary and source inventory                                                             | Human approval   | Required                                  |
-| 1 ingest       | Source summary, domain/pillar classification, candidate objects, missing evidence                    | No separate gate | Required                                  |
+| 1 ingest       | Provisional inventory/scope summary and domain/pillar classification                    | No separate gate | Required                                  |
 | 2 model        | Threat actors, roles, protected assets, critical invariants, components, typed edges and questions   | Human approval   | Required                                  |
 | 3 stride       | Ranked threats, six STRIDE categories, controls, confidence, coverage rationale                      | Human approval   | Required                                  |
 | 4 trees        | Top-threat attack trees, AND/OR branches, assumptions, prerequisites, leaf mitigations and omissions | Human approval   | On by default                             |
-| 5 coordination | Actor combinations, thresholds, incentives, shared dependencies, consequences and mitigations        | Human approval   | Auto from classification; on/off override |
+| 5 coordination | Actor combinations, thresholds, incentives, shared dependencies, consequences and mitigations        | Human approval   | Auto from profile/model; on/off override |
 | 6 report       | Executive summary, linked mitigation roadmap, residual risks, questions and next steps               | Human approval   | Required                                  |
 
 Each phase produces schema-validated data. TRACE objects require exact evidence
 quotes/line references or explicit inferred assumptions. Before validation,
 generated line ranges may be relocated to a unique,
 exact quote in the claimed file; corrections are recorded in generation metadata.
-Unmatched evidence is removed from verified citations. One bounded citation retry
-can repair it; otherwise its claim is retained as an explicit unverified assumption
-with a source-review note, and TRACE continues sequentially. Rejected citations are
-retained in diagnostic metadata. A malformed or unavailable retry cannot discard
-an already structurally valid draft. Threats reference existing
-objects; risk is likelihood (1–5) × impact (1–5). Every asset, invariant and edge has
+Unmatched evidence is removed from verified citations and its claim is retained
+as an explicit unverified assumption with a review note, without another provider
+call. Rejected citations are retained in diagnostic metadata. Generation schemas
+constrain downstream references to canonical model IDs. Unambiguous identity/name
+matches can repair references locally; unresolved optional links are removed from
+the link arrays and explicitly recorded for review without discarding the claim.
+Required broken relationships and malformed structure get one bounded repair.
+Threats reference existing objects; risk is likelihood (1–5) × impact (1–5). Every asset, invariant and edge has
 a coverage row with linked threats or an explanation. Trees have one root, no cycles,
 valid parent links, AND/OR operators and mitigated leaves. Top threats without a tree
 have a documented reason in configurable draft/review runs. Full pipeline mode

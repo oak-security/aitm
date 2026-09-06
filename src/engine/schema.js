@@ -238,9 +238,12 @@ export const Schemas = {
 };
 
 export function enabledPhases(project) {
+  const model = project.artifacts.model?.data;
+  const multipleActors = (model?.threatActors.length || 0) + (model?.roles.length || 0) > 1;
   const coordination =
     project.config.coordination === 'on' ||
-    (project.config.coordination === 'auto' && project.artifacts.ingest?.data.coordinatingActors);
+    (project.config.coordination === 'auto' &&
+      (project.artifacts.ingest?.data.coordinatingActors || multipleActors));
   return PHASES.filter(
     (p) =>
       p.required ||

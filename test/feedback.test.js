@@ -6,7 +6,7 @@ import { setup, finish, serve } from './helpers.js';
 import { App } from '../src/tui/app.js';
 import { topbar, progress } from '../src/web/views.js';
 
-test('later classification batches keep earlier candidates without failing or retrying omissions', async (t) => {
+test('later source batches keep earlier model objects without failing or retrying omissions', async (t) => {
   const { engine, p, providers } = await setup(t);
   await engine.addSource(
     p.id,
@@ -22,12 +22,10 @@ test('later classification batches keep earlier candidates without failing or re
     const context = JSON.parse(input.user);
     const result = await original(input);
     if (context.previousDraft) result.data = structuredClone(context.previousDraft);
-    if (input.phase === 'ingest' && context.batch.number > 1) result.data.candidates = [];
     if (input.phase === 'model' && context.batch.number > 1) {
       result.data.roles = [];
       result.data.components[0].description = 'Updated vault description.';
     }
-    if (input.phase === 'trees' && context.batch.number > 1) result.data.trees[0].nodes.pop();
     return result;
   };
   const run = await finish(engine, p.id, { mode: 'full' });

@@ -50,8 +50,10 @@ exports when changing presentation.
   and save together only after the final selection; Escape must preserve analysis.
 - Ingestion is bounded, ignores secrets/dependencies and symlinks, honors nested
   gitignore, validates uploaded paths, and never executes source code or Git hooks.
-  Preserve accepted text in full. Process all source batches sequentially in each
-  analysis phase, retaining earlier findings; never publish partial batch results.
+  Preserve accepted text in full. Classification uses the inventory; TRACE model
+  construction reads every source batch sequentially, retaining earlier findings.
+  Downstream phases consume completed artifacts. Recheck automatic coordination
+  applicability against model actors/roles. Never publish partial batch results.
 - API clients cannot write project files directly. Jobs survive HTTP client disconnects while the engine remains open.
   Cancellation never publishes a partial artifact. Crash recovery marks interruption.
 - Every output is a draft until an explicit human review. Draft runs may bypass gates
@@ -65,9 +67,11 @@ exports when changing presentation.
   prior items and validating the merged result. Show batch counts throughout
   streaming; never retry or fail merely because a later batch omitted an earlier item.
 - Validate evidence quotes, references, coverage, tree structure and roadmap links.
-- A citation mismatch must not abort otherwise valid TRACE analysis. Retry once,
-  then retain the claim as an explicit unverified assumption with review notes.
-  Keep rejected citations in diagnostic metadata; never display them as verified
+- A citation mismatch must not abort otherwise valid TRACE analysis or trigger a
+  paid regeneration. Retain the claim as an unverified assumption with review notes.
+  Constrain generated cross-phase IDs to canonical model collections. Repair only
+  unambiguous identity matches; unresolved optional links become review notes.
+  Keep rejected citations/links in diagnostic metadata; never display them as verified
   evidence. Structural validation and sequential phase prerequisites still apply.
 - Use protected assets, never crown jewels. TRACE means Threat actors, Roles, Assets,
   Critical invariants and Edges. It applies to protocols, systems and organisations.

@@ -47,10 +47,11 @@ export function resolveEvidence(phase, raw, project) {
           .join('\n');
         if (ref.endLine >= ref.startLine && ref.endLine <= file.lines && cited.includes(ref.quote))
           continue;
-        const start = file.text.indexOf(ref.quote);
-        if (start < 0 || file.text.indexOf(ref.quote, start + 1) >= 0) continue;
+        const quote = ref.quote.trim();
+        const start = file.text.indexOf(quote);
+        if (start < 0 || file.text.indexOf(quote, start + 1) >= 0) continue;
         const startLine = file.text.slice(0, start).split('\n').length;
-        const endLine = startLine + ref.quote.split('\n').length - 1;
+        const endLine = startLine + quote.split('\n').length - 1;
         corrections.push({
           path: `${location}.evidence[${index}]`,
           fileId: ref.fileId,
@@ -59,6 +60,7 @@ export function resolveEvidence(phase, raw, project) {
         });
         ref.startLine = startLine;
         ref.endLine = endLine;
+        ref.quote = quote;
       }
     for (const [key, child] of Object.entries(value))
       if (typeof child === 'object') visit(child, `${location}.${key}`);
@@ -127,14 +129,14 @@ export function evidenceReviewNotes(data) {
     if (!value || typeof value !== 'object') return;
     if (
       typeof value.assumption === 'string' &&
-      value.assumption.includes('Evidence review required:')
+      /(?:Evidence|Reference) review required:/.test(value.assumption)
     )
       notes.push({
         path: location,
         claim: value.name || value.title || value.label || value.id || location,
         note: value.assumption
           .split('\n')
-          .find((line) => line.includes('Evidence review required:'))
+          .find((line) => /(?:Evidence|Reference) review required:/.test(line))
           .slice(0, 500),
       });
     for (const [key, child] of Object.entries(value))

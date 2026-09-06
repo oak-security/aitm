@@ -15,7 +15,7 @@ import {
   enabledPhases,
   resolveConfig,
 } from './schema.js';
-import { ingest, LIMITS, sourceBatches, needsFullSourceRun } from './ingest.js';
+import { ingest, LIMITS, needsFullSourceRun } from './ingest.js';
 import {
   validateArtifact,
   validateContinuation,
@@ -27,6 +27,8 @@ import {
   resolveCoverage,
 } from './validate.js';
 import { promptFor } from './prompts.js';
+import { generationSources, generationSchema } from './generation.js';
+import { resolveReferences } from './references.js';
 import { Providers } from './providers.js';
 
 const artifact = (data, runId = null, generation = null) => ({
@@ -446,10 +448,7 @@ export class Engine {
         if (!p.artifacts[phase.id]) {
           this.status(id, runId, 'running', phase.id);
           const deep = ['stride', 'coordination'].includes(phase.id);
-          const batches =
-            phase.id === 'report'
-              ? [p.sources.flatMap((s) => s.files.map((f) => ({ id: f.id, path: f.path })))]
-              : sourceBatches(p);
+          const batches = generationSources(phase.id, p);
           const usage = { inputTokens: 0, outputTokens: 0 };
           const passes = [];
           let result, data;
@@ -464,8 +463,9 @@ export class Engine {
             let evidenceCorrections = [],
               coverageCorrections = [],
               evidenceWarnings = [],
+              referenceCorrections = [],
+              referenceWarnings = [],
               retainedFindings = [],
-              candidate = null,
               attempts = 0;
             for (; attempts < 2; attempts++) {
               const batchProgress = {
@@ -480,44 +480,24 @@ export class Engine {
                 runId,
                 'request',
                 phase.id,
-                `${phase.id === 'ingest' ? 'Sources imported. Classifying' : 'Analysing'} source batch ${batchIndex + 1}/${batches.length} · waiting for provider response.`,
+                `${phase.id === 'model' ? `Reading source batch ${batchIndex + 1}/${batches.length}` : phase.id === 'ingest' ? 'Classifying source inventory' : 'Analysing completed TRACE artifacts'} · waiting for provider response.`,
                 batchProgress,
               );
-              try {
-                result = await this.providers.call({
-                  provider: p.config.provider,
-                  model: deep ? p.config.deepModel : p.config.fastModel,
-                  phase: phase.id,
-                  effort: p.config.effort,
-                  ...prompt,
-                  user: JSON.stringify(context),
-                  signal,
-                  onProgress: (progress) =>
-                    this.emit(id, runId, 'progress', phase.id, `Receiving ${phase.title}`, {
-                      ...progress,
-                      ...batchProgress,
-                    }),
-                });
-              } catch (error) {
-                signal.throwIfAborted();
-                if (!candidate) throw error;
-                ({
-                  result,
-                  data,
-                  evidenceCorrections,
-                  coverageCorrections,
-                  evidenceWarnings,
-                  retainedFindings,
-                } = candidate);
-                this.emit(
-                  id,
-                  runId,
-                  'repair_fallback',
-                  phase.id,
-                  'The citation retry was unavailable. Continuing with the saved draft and review notes.',
-                );
-                break;
-              }
+              result = await this.providers.call({
+                provider: p.config.provider,
+                model: deep ? p.config.deepModel : p.config.fastModel,
+                phase: phase.id,
+                schema: generationSchema(phase.id, p),
+                effort: p.config.effort,
+                ...prompt,
+                user: JSON.stringify(context),
+                signal,
+                onProgress: (progress) =>
+                  this.emit(id, runId, 'progress', phase.id, `Receiving ${phase.title}`, {
+                    ...progress,
+                    ...batchProgress,
+                  }),
+              });
               signal.throwIfAborted();
               p = this.get(id);
               const run = p.runs.find((r) => r.id === runId);
@@ -539,51 +519,17 @@ export class Engine {
                 retainedFindings = continuation.retained;
                 const resolved = resolveEvidence(phase.id, continuation.data, p);
                 evidenceWarnings = deferEvidence(phase.id, resolved.data, p);
+                const references = resolveReferences(phase.id, resolved.data, p);
+                referenceCorrections = references.corrections;
+                referenceWarnings = references.warnings;
                 coverageCorrections =
                   phase.id === 'stride' ? resolveCoverage(resolved.data, p) : [];
                 data = validateArtifact(phase.id, resolved.data, p);
                 if (context.previousDraft) validateContinuation(context.previousDraft, data);
                 if (phase.id === 'trees' && input.mode === 'full') validateFullTrees(data, p);
                 evidenceCorrections = resolved.corrections;
-                candidate = {
-                  result,
-                  data,
-                  evidenceCorrections,
-                  coverageCorrections,
-                  evidenceWarnings,
-                  retainedFindings,
-                };
-                if (evidenceWarnings.length && !attempts)
-                  throw new AppError(
-                    422,
-                    'evidence_review',
-                    evidenceWarnings
-                      .map(
-                        (warning) =>
-                          `${warning.path}: ${warning.rejectedEvidence.map((ref) => `${ref.path}: ${ref.reason}`).join('\n') || warning.reason}`,
-                      )
-                      .join('\n'),
-                  );
                 break;
               } catch (error) {
-                if (attempts && candidate) {
-                  ({
-                    result,
-                    data,
-                    evidenceCorrections,
-                    coverageCorrections,
-                    evidenceWarnings,
-                    retainedFindings,
-                  } = candidate);
-                  this.emit(
-                    id,
-                    runId,
-                    'repair_fallback',
-                    phase.id,
-                    'Keeping the usable draft with evidence review notes. Continuing TRACE.',
-                  );
-                  break;
-                }
                 if (attempts || !(error instanceof AppError) || error.status !== 422) throw error;
                 context.correction = {
                   instruction:
@@ -596,9 +542,7 @@ export class Engine {
                   runId,
                   'validation_retry',
                   phase.id,
-                  error.code === 'evidence_review'
-                    ? 'Checking source citations once more; unresolved citations will become review notes.'
-                    : 'Checking this step again before continuing.',
+                  'Repairing the output structure once before continuing.',
                   { validationError: this.providers.redact(error.message) },
                 );
               }
@@ -608,6 +552,8 @@ export class Engine {
               evidenceCorrections,
               coverageCorrections,
               evidenceWarnings,
+              referenceCorrections,
+              referenceWarnings,
               retainedFindings,
             });
             this.emit(
@@ -615,7 +561,7 @@ export class Engine {
               runId,
               'batch_complete',
               phase.id,
-              `Source batch ${batchIndex + 1}/${batches.length} analysed${retainedFindings.length ? `; retained ${retainedFindings.length} earlier finding(s)` : ''}.`,
+              `${phase.id === 'model' ? `Source batch ${batchIndex + 1}/${batches.length} analysed` : `${phase.title} analysed`}${retainedFindings.length ? `; retained ${retainedFindings.length} earlier finding(s)` : ''}.`,
               { batch: batchIndex + 1, batches: batches.length, retained: retainedFindings.length },
             );
           }
@@ -630,18 +576,22 @@ export class Engine {
             evidenceCorrections: passes.flatMap((pass) => pass.evidenceCorrections),
             coverageCorrections: passes.flatMap((pass) => pass.coverageCorrections),
             evidenceWarnings,
+            referenceCorrections: passes.flatMap((pass) => pass.referenceCorrections),
+            referenceWarnings: passes.flatMap((pass) => pass.referenceWarnings),
             retainedFindings: passes.flatMap((pass) => pass.retainedFindings),
             sourceCoverage:
-              phase.id === 'report'
-                ? { fromArtifacts: true }
-                : {
+              phase.id === 'model'
+                ? {
                     complete: true,
                     files: p.sources.flatMap((s) => s.files).length,
                     characters: p.sources
                       .flatMap((s) => s.files)
                       .reduce((n, f) => n + f.text.length, 0),
                     batches: batches.length,
-                  },
+                  }
+                : phase.id === 'ingest'
+                  ? { fromInventory: true }
+                  : { fromArtifacts: true },
           });
           this.save(p);
           if (evidenceWarnings.length)
@@ -652,6 +602,16 @@ export class Engine {
               phase.id,
               `${evidenceWarnings.length} claim(s) need source review. Saved as unverified assumptions; continuing TRACE.`,
               { count: evidenceWarnings.length },
+            );
+          const referenceWarnings = passes.flatMap((pass) => pass.referenceWarnings);
+          if (referenceWarnings.length)
+            this.emit(
+              id,
+              runId,
+              'reference_review',
+              phase.id,
+              `${referenceWarnings.length} model mapping(s) need review. Valid links and findings are saved; continuing TRACE.`,
+              { count: referenceWarnings.length },
             );
           this.emit(id, runId, 'artifact', phase.id, `${phase.title} ready for review.`);
         } else this.emit(id, runId, 'reused', phase.id, `Using saved ${phase.title}.`);

@@ -29,7 +29,7 @@ test('large documents are analysed sequentially in full, with accumulated drafts
       batch: context.batch.number,
       text: context.sources.map((f) => f.text).join('\n'),
     });
-    if (input.phase !== 'report') {
+    if (input.phase === 'model') {
       assert.equal(
         engine.get(p.id).artifacts[input.phase],
         undefined,
@@ -39,7 +39,7 @@ test('large documents are analysed sequentially in full, with accumulated drafts
     } else
       assert.ok(
         context.sources.every((f) => f.text === undefined),
-        'report synthesis uses completed artifacts',
+        'classification uses inventory; downstream phases use completed artifacts',
       );
     const result = await call(input);
     if (context.previousDraft) result.data = structuredClone(context.previousDraft);
@@ -49,10 +49,10 @@ test('large documents are analysed sequentially in full, with accumulated drafts
   };
   const run = await finish(engine, p.id, { mode: 'full' });
   assert.equal(run.status, 'completed', run.error);
-  const phases = ['ingest', 'model', 'stride', 'trees', 'coordination'];
+  const phases = ['model'];
   assert.deepEqual(
     seen.map((call) => call.phase),
-    [...phases.flatMap((phase) => batches.map(() => phase)), 'report'],
+    ['ingest', ...batches.map(() => 'model'), 'stride', 'trees', 'coordination', 'report'],
   );
   for (const phase of phases) {
     const coverage = engine.get(p.id).artifacts[phase].generation.sourceCoverage;
@@ -154,7 +154,7 @@ test('old analyses made from prompt excerpts are rebuilt even when stored files 
   assert.doesNotMatch(markdownReport(engine.get(p.id)), /incomplete source text/);
 });
 
-test('a later batch retains earlier findings without a provider retry', async (t) => {
+test('a later model batch retains earlier findings without a provider retry', async (t) => {
   const { engine, p, providers } = await setup(t);
   await engine.addSource(
     p.id,
@@ -166,11 +166,11 @@ test('a later batch retains earlier findings without a provider retry', async (t
   providers.call = async (input) => {
     const context = JSON.parse(input.user);
     const result = await call(input);
-    if (input.phase === 'ingest' && context.batch.number === 2) {
-      if (!context.correction) result.data.candidates = [];
+    if (input.phase === 'model' && context.batch.number === 2) {
+      if (!context.correction) result.data.roles = [];
       else {
-        assert.match(context.correction.validationError, /Retain previousDraft.candidates CAND-1/);
-        assert.equal(context.previousDraft.candidates[0].id, 'CAND-1');
+        assert.match(context.correction.validationError, /Retain previousDraft.roles ROLE-1/);
+        assert.equal(context.previousDraft.roles[0].id, 'ROLE-1');
         retry = true;
       }
     }
@@ -182,7 +182,7 @@ test('a later batch retains earlier findings without a provider retry', async (t
   assert.ok(
     engine
       .get(p.id)
-      .artifacts.ingest.generation.retainedFindings.includes('previousDraft.candidates.CAND-1'),
+      .artifacts.model.generation.retainedFindings.includes('previousDraft.roles.ROLE-1'),
   );
-  assert.equal(engine.get(p.id).artifacts.ingest.data.candidates[0].id, 'CAND-1');
+  assert.equal(engine.get(p.id).artifacts.model.data.roles[0].id, 'ROLE-1');
 });

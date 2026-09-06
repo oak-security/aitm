@@ -284,7 +284,6 @@ test('a persistent citation mismatch becomes a review note and TRACE continues s
   assert.deepEqual(providers.calls, [
     'ingest',
     'model',
-    'model',
     'stride',
     'trees',
     'coordination',
@@ -308,7 +307,7 @@ test('a persistent citation mismatch becomes a review note and TRACE continues s
 });
 
 for (const repair of ['malformed', 'unavailable'])
-  test(`an ${repair} citation retry retains the structurally valid draft`, async (t) => {
+  test(`citation mismatches do not make an unnecessary ${repair} provider retry`, async (t) => {
     const { engine, p, providers } = await setup(t);
     const call = providers.call.bind(providers);
     let attempts = 0;
@@ -327,9 +326,9 @@ for (const repair of ['malformed', 'unavailable'])
     };
     const run = await finish(engine, p.id, { mode: 'full' });
     assert.equal(run.status, 'completed', run.error);
-    assert.equal(attempts, 2);
+    assert.equal(attempts, 1);
     assert.equal(engine.get(p.id).artifacts.model.reviewNotes.length, 1);
-    assert.ok(run.events.some((e) => e.type === 'repair_fallback'));
+    assert.ok(!run.events.some((e) => e.type === 'validation_retry'));
   });
 
 test('citation recovery keeps valid references, exposes partial support and preserves review gates', async (t) => {
@@ -380,7 +379,7 @@ test('citation recovery cannot publish broken TRACE references', async (t) => {
   assert.equal(engine.get(p.id).artifacts.model, undefined);
 });
 
-test('cancelling a citation retry does not publish the tentative draft', async (t) => {
+test('cancelling a structural repair does not publish the tentative draft', async (t) => {
   const { engine, p, providers } = await setup(t);
   const call = providers.call.bind(providers);
   let attempts = 0,
@@ -396,10 +395,7 @@ test('cancelling a citation retry does not publish the tentative draft', async (
       );
     }
     const result = await call(input);
-    if (input.phase === 'model')
-      result.data.edges[0].evidence = [
-        { ...result.data.edges[0].evidence[0], quote: 'Unmatched citation.' },
-      ];
+    if (input.phase === 'model') result.data.edges[0].from = 'unknown-component';
     return result;
   };
   const run = engine.run(p.id, { mode: 'full' });

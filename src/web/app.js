@@ -135,6 +135,7 @@ function connectRun() {
     'validation_retry',
     'repair_fallback',
     'evidence_review',
+    'reference_review',
     'source_refresh',
     'artifact',
     'reused',

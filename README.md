@@ -294,14 +294,20 @@ oversized inputs produce an explicit error or a recorded folder-skip diagnostic,
 never a truncated document. Scope shows import diagnostics, including unreadable
 or skipped files. Inline API text is limited to 500,000 characters per request.
 
-Every analysis phase processes the entire accepted source text in sequential
-batches of up to 180,000 numbered source characters. Each batch receives the
-accumulated draft. The engine retains earlier keyed findings that the model omits,
-applies explicit updates and validates the merged result without another provider
-call for omissions. A phase is saved
-only after all its batches finish. The report is synthesized from those completed
-artifacts. Progress shows the current source batch. More source text means more
-provider calls; complete delivery does not guarantee that an AI identifies every issue.
+Classification quickly identifies a provisional profile from the inventory and scope.
+TRACE model construction then reads **all accepted source text**, in sequential
+batches of up to 180,000 numbered source characters. Later batches return new or
+changed objects; the engine retains earlier findings and validates the merged model.
+The model is saved only after every batch finishes. STRIDE, attack trees,
+coordination and the report reason from the completed artifacts, without rereading
+the repository at every step. Seven source batches therefore require 12 normal
+provider calls for a full run with coordination, rather than 36.
+
+Cross-phase references are constrained to existing model IDs. Citation mismatches
+and unresolved optional links become explicit review notes without regenerating
+whole responses. Broken required relationships still get one bounded repair.
+Progress shows the current source batch during model construction. Complete source
+delivery does not guarantee that an AI identifies every issue.
 
 Older saved snapshots marked as truncated are refreshed from their original local
 file or URL before a new run, and affected analysis is rebuilt. Old analysis made
