@@ -17,3 +17,10 @@ scripts/orca-vm/.keys/
 *.log
 .DS_Store
 Thumbs.db
+
+# Engine state and local verification artifacts
+.aitm/
+artifacts/
+coverage/
+*.tgz
+__pycache__/

@@ -1,40 +1,48 @@
 {
-  "name": "@oak-security/aitm-desktop",
-  "productName": "AiTM",
-  "version": "0.3.0",
-  "private": true,
-  "description": "AiTM — AI Threat Modeller. Local-first desktop threat modeling using the TRACE framework.",
+  "name": "@oak-security/aitm",
+  "version": "2.0.0",
+  "description": "TRACE threat modelling engine, local API server and terminal client.",
+  "type": "module",
   "license": "UNLICENSED",
-  "author": { "name": "Oak Security", "email": "info@oaksecurity.io" },
-  "main": "src/main/index.js",
-  "workspaces": ["packages/*"],
-  "engines": { "node": ">=20" },
+  "bin": {
+    "aitm": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "SPEC.md",
+    "docs/api.md",
+    "examples",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=22.3"
+  },
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
-    "aitm": "node packages/cli/src/aitm.js",
-    "gui": "electron .",
-    "tui": "node packages/cli/src/aitm.js tui",
-    "web": "node packages/cli/src/aitm.js web",
-    "server": "node packages/cli/src/aitm.js serve",
-    "link:cli": "npm link --workspace @oak-security/aitm",
-    "check": "node scripts/check-syntax.js",
-    "test": "node --test 'test/**/*.test.js'",
-    "verify:release": "node scripts/verify-release.js",
-    "version:set": "node scripts/set-version.js",
-    "pack:check": "node scripts/check-packages.js",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac --arm64",
-    "dist:win": "electron-builder --win",
-    "dist:linux": "electron-builder --linux",
-    "publish:ci": "electron-builder --mac --arm64 --publish always"
+    "start": "node src/cli.js",
+    "aitm": "node src/cli.js",
+    "tui": "node src/cli.js",
+    "server": "node src/cli.js serve",
+    "check": "node scripts/check-syntax.js && prettier --check \"src/**/*.js\" \"test/**/*.js\" \"scripts/*.js\" package.json",
+    "test": "node --test test/*.test.js",
+    "test:live": "node scripts/test-live.js",
+    "link:cli": "npm link",
+    "pack:check": "npm pack --dry-run",
+    "format": "prettier --write \"src/**/*.js\" \"test/**/*.js\" \"scripts/*.js\" package.json .prettierrc.json README.md SPEC.md AGENT.md \"docs/*.md\" .github/workflows/ci.yml"
   },
   "dependencies": {
-    "@oak-security/aitm-engine": "0.3.0",
-    "@oak-security/aitm-workbench": "0.3.0"
+    "ignore": "7.0.8",
+    "ink": "7.1.1",
+    "ink-text-input": "6.0.0",
+    "mammoth": "1.12.2",
+    "pdf-parse": "2.4.5",
+    "pdfkit": "0.20.2",
+    "proper-lockfile": "4.1.2",
+    "react": "19.2.8",
+    "zod": "4.5.4"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "ink-testing-library": "4.0.0",
+    "prettier": "3.9.6"
   }
 }

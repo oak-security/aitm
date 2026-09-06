@@ -1,361 +1,195 @@
-<p align="center">
-  <img src="docs/banner.png" alt="AiTM — AI Threat Modeller" width="820">
-</p>
+# AiTM — AI Threat Modeller
 
-Local-first application for AI-assisted threat modeling using the
-[TRACE](https://github.com/oak-security/TRACE) framework.
-
-- **Local-first**: projects and your API key live on your machine; nothing is uploaded
-  except the AI calls you trigger. No accounts, no hosted backend, no telemetry.
-- **Bring your own key**: OpenAI or Anthropic, one per provider.
-- **TRACE phases**: Scope & Sources → TRACE model → STRIDE → Attack trees →
-  Collusion/Coordination → Report. Optional phases toggle per project.
-- **Generic**: domain profiles span generic IT, web, cloud, mobile, ICS/OT, and Web3.
-- **Three UIs and two programmatic adapters over one application core**: the
-  [Electron desktop app](#download--install), [terminal UI](#terminal-ui),
-  [local web UI](#local-web-ui), [headless CLI](#programmatic-cli), and
-  [HTTP/SSE server](#api-server). All are single-user and share one project store.
-
-AiTM's command is an engine dispatcher; every adapter is selected explicitly:
-
-| Command | Adapter |
-| --- | --- |
-| `aitm tui [source ...]` | Ink terminal UI |
-| `aitm gui` | Electron desktop UI |
-| `aitm web` | Browser UI with its local HTTP/SSE transport |
-| `aitm -p [command ...]` | In-process programmatic CLI |
-| `aitm serve` | API-only HTTP/SSE server |
-
-A bare `aitm` prints usage. The CLI and desktop are separate installations over the
-same versioned engine; installing one does not pull in the other.
-
-## Download & install
-
-**macOS (Apple Silicon) is the only platform with a prebuilt download.** Windows and
-Linux can be built from source, but those builds are unsigned and untested — see
-[Windows & Linux (build from source)](#windows--linux-build-from-source).
-
-### macOS (Apple Silicon)
-
-Get the installer from the **[Releases page](https://github.com/oak-security/aitm/releases/latest)**.
-(This is a private repository — sign in to GitHub with an account in the `oak-security`
-org to see it.)
-
-1. Download **`AiTM-<version>-arm64.dmg`**.
-2. Open the `.dmg` and drag **AiTM** into **Applications**.
-3. Launch it from Applications.
-
-The macOS build is signed and notarized, so it opens with no Gatekeeper warning.
-Note: **Apple Silicon (M-series) only** — Intel Macs aren't supported yet.
-
-You also need your **own AI API key** (OpenAI or Anthropic) — see "First run" below.
-
-### CLI, TUI, web UI, and API server
-
-The non-Electron modes ship as the private GitHub Package `@oak-security/aitm`. Authenticate
-npm to GitHub Packages with an Oak-authorized token carrying `read:packages`, then install
-to a user-writable prefix:
-
-```sh
-npm login --scope=@oak-security --auth-type=legacy --registry=https://npm.pkg.github.com
-npm install --global --prefix "$HOME/.local" @oak-security/aitm
-aitm --version
+```text
+    _    ___ _____ __  __
+   / \  |_ _|_   _|  \/  |    o-----o
+  / _ \  | |  | | | |\/| |    |\   /|
+ / ___ \ | |  | | | |  | |    | o-o |
+/_/   \_\___| |_| |_|  |_|    o-----o
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH`. This package contains `aitm tui`, `aitm -p`,
-`aitm web`, and `aitm serve`; it does not contain Electron. On macOS, `aitm gui` launches
-the separately installed AiTM application.
+A local server that runs the [TRACE methodology](https://github.com/oak-security/TRACE/blob/main/METHODOLOGY.md), with an API and a terminal client. By Oak Security.
 
-From a source checkout, use the same user-local layout without publishing first:
+AiTM v2 is a fresh implementation. The server owns source ingestion, project state,
+AI calls, pipeline jobs, human reviews and reports. The TUI uses the HTTP API.
+Closing a terminal does not stop the server or abandon an analysis.
+
+## Install and launch
+
+Node.js 22.3+ and Git are required. From this checkout:
 
 ```sh
 npm ci
-NPM_CONFIG_PREFIX="$HOME/.local" npm run link:cli
+npm_config_prefix="$HOME/.local" npm link
+aitm
 ```
 
-### Windows & Linux (build from source)
-
-> **Untested.** The Windows and Linux packages are not code-signed and have not been
-> tested on either platform. They are not published as release downloads. Build them
-> yourself only if you are willing to debug an unsupported build; the app itself is
-> plain Electron, so nothing is known to be broken, but nothing has been verified
-> either. Bug reports are welcome, fixes are best-effort.
-
-Prerequisites: Node.js 20+, Git, and repo access. Build on the target platform —
-electron-builder does not cross-compile these targets reliably.
+Make sure `~/.local/bin` is on `PATH`. On a case-insensitive macOS filesystem,
+`AITM` also launches the same command. `npm start` runs directly from the checkout.
+A bare `aitm` opens the TUI and starts a local background server when needed.
 
 ```sh
-git clone https://github.com/oak-security/aitm.git
-cd aitm
-npm ci
-npm run dist:win     # Windows: NSIS installer -> dist/AiTM-Setup-<version>.exe
-npm run dist:linux   # Linux:   dist/AiTM-<version>.AppImage and dist/aitm_<version>_amd64.deb
+aitm ./my-repo ./architecture.pdf --name "Release assessment" --scope "Custody and release authority"
+aitm serve                              # foreground API server
+aitm --server http://127.0.0.1:8790       # attach a TUI to a running engine
+aitm --port 8791 --data-dir ./private-data
+aitm status
+aitm stop                               # stops background server; cancels active runs
 ```
 
-Then install the artifact from `dist/`:
+`aitm serve` can be supervised by launchd, systemd or another process manager. The
+server is single-user and binds only to loopback. It has no public hosting mode.
+Use `--server` to explicitly attach to a different local server. Local paths refer
+to the server's filesystem.
 
-- **Windows** — run `AiTM-Setup-<version>.exe`. Because the build is unsigned,
-  SmartScreen shows **"Windows protected your PC"**; click **More info → Run anyway**.
-- **Linux, AppImage** (any distro):
-  ```sh
-  chmod +x AiTM-<version>.AppImage
-  ./AiTM-<version>.AppImage
-  ```
-- **Linux, Debian / Ubuntu** (`.deb`):
-  ```sh
-  sudo apt install ./aitm_<version>_amd64.deb
-  ```
+## Provide API keys
 
-If you would rather not package at all, both non-macOS platforms can run the app
-straight from the checkout with `npm start`, or use the
-[terminal UI](#terminal-ui) / [local web UI](#local-web-ui), which are
-plain Node processes with no packaging step.
-
-### First run
-
-1. Open **Settings** (sidebar, bottom-left).
-2. Choose your **provider** (OpenAI or Anthropic), paste your **API key**, and click **Test key**.
-3. Click **New** to create a project, add sources, and start modeling — or use
-   **Run full pipeline** on the Overview screen for an end-to-end first pass.
-
-Your key is stored encrypted on your device (OS keychain) and is only ever sent to the
-provider you select. Projects and settings live in your app-data folder ("Reveal data
-folder" in the sidebar).
-
-### Desktop updates
-
-The private repository cannot provide an anonymous Electron update feed, so the desktop
-does not pretend to auto-update. Check the [Releases page](https://github.com/oak-security/aitm/releases/latest)
-and install the new DMG over the existing application. Update the CLI separately with
-the same `npm install --global --prefix ...` command. Windows and Linux desktop builds
-must be rebuilt from an updated checkout.
-
-## Usage guide
-
-AiTM implements the [TRACE](https://github.com/oak-security/TRACE) threat-modeling
-methodology: ingest what describes the system, build a structured model of it, enumerate
-threats with STRIDE, optionally decompose the important ones into attack trees and check
-for actor collusion, then produce a report. Every AI output is an **editable draft** — you
-review and correct it; the app is an assistant, not an oracle.
-
-### 1. Ingest your sources
-
-On the **Sources & Scope** page (TRACE phases 0–1):
-
-- **Add folder** — a local source/project directory (code, configs, docs). The walk is
-  confined to the folder, honors `.gitignore`, and skips binaries/dependency dirs.
-- **Add file** — individual files: specification / architecture / whitepaper documents
-  (`.md`, `.txt`, `.pdf`, `.docx`) and/or source files.
-
-Add **as many sources as you like** — they're complementary. A typical setup is a
-**spec or whitepaper plus the code repo**. Everything is local; nothing is uploaded
-until you run an AI step. Then (optionally) fill in **Scope** — boundaries, in/out of
-scope, assumptions — and click **Ingest** to classify the system and open the Overview.
-
-### 2. Tip: a good spec beats raw code
-
-TRACE is a **design-level** methodology, so the model reasons best from material that
-describes the system's **architecture, components, trust boundaries, assets, and
-actors** — i.e. a clear **specification, whitepaper, or design doc**. Pointing it only at
-a large code repository tends to produce noisier, lower-altitude results, because the
-design intent has to be inferred from implementation detail. **Best results: feed it a
-solid spec/whitepaper, and add the code as a supporting source** for grounding.
-
-### 3. Two ways to run it
-
-- **Full pipeline ("Run full pipeline" on the Overview)** — the "I'm feeling lucky" mode.
-  Runs every enabled phase end to end (classify → TRACE model → STRIDE → top-3 attack
-  trees → coordination → report), auto-approving each step. Great for a fast first pass
-  or to scope effort. It **resets prior AI results** first, so it's a clean re-run.
-- **Deliberate, phase by phase (recommended for real work)** — generate one phase at a
-  time, **review and edit** the tables (assets, actors, invariants, threats, …), mark the
-  phase reviewed, then move on. Correcting the TRACE model *before* STRIDE, and STRIDE
-  *before* attack trees, materially improves the result. This is the approval-gate
-  workflow; the full pipeline just auto-approves those same gates.
-
-A good rhythm: run the full pipeline once for a draft, then walk the phases to refine.
-
-### 4. The TRACE phases
-
-Each phase is in the left nav; **optional ones can be toggled per project** under
-**Phases** (disabled phases drop out of the workflow, the pipeline, and the report).
-
-| Phase | What it does |
-| --- | --- |
-| **0–1 Sources & Scope** | Ingest local sources; record assessment boundaries. |
-| **2 TRACE Model** | Structured model: protected assets, threat actors, privileged roles, invariants, components, trust boundaries, value/data flows. |
-| **3 STRIDE** | Per-surface threats (Spoofing/Tampering/Repudiation/Info-disclosure/DoS/Elevation) with likelihood, impact, and risk. |
-| **4 Attack Trees** *(optional)* | Decompose chosen threats into attack paths — one tree per threat, accumulative. |
-| **5 Collusion & Coordination** *(optional)* | Where distinct actor groups (validators, multisig signers, committees, DAOs…) could coordinate to cause harm. Defaults on only when the classification flags it. |
-| **6 Report** | Assembles the reviewed model into a design-level report; export to **PDF** or **Markdown**. |
-
-The report is an **AI-assisted, design-level** document — it is not a code audit,
-penetration test, or certification, and should be reviewed by an expert before external
-use.
-
-## Terminal UI
-
-A keyboard-driven TUI frontend that runs the same pipeline against the same project
-store, no Electron window needed. It adds git/GitHub URL ingestion (shallow clone, also
-in the web UI below, not in the desktop app) and an AI-applied scope hint that reduces
-the ingested file set ("only the docs directory"). Programmatic mode reuses both.
+For this source checkout, run:
 
 ```sh
-npm run tui -- [source ...]              # source checkout
-
-aitm tui                                 # current directory
-aitm tui docs/arch.md spec.pdf           # specific files
-aitm tui https://github.com/owner/repo   # shallow-cloned, clone removed after
+python3 scripts/configure-keys.py
 ```
 
-API keys come from `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the TUI's own key file;
-the desktop app's OS-keychain vault is Electron-only. See `packages/cli/docs/tui.md`.
+Both prompts hide input. The script writes `.env.local` with mode 0600; Git ignores
+it. Alternatively, `aitm configure` prompts privately and writes
+`~/.config/aitm/keys.json` with mode 0600. These files are plaintext protected by OS
+permissions, not encrypted vaults. Don't paste keys into chat, project notes or code.
 
-## Local web UI
+The server loads keys in this order: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` environment
+variables, `.env.local` in its working directory (then the installed package root),
+and the private key file. Restart the server after changing keys. Only configuration
+status reaches the API client; key values do not appear in projects, reports or logs.
 
-The same renderer served in your browser instead of an Electron window, running the same
-pipeline against the same project store. Single user, no authentication, bound to
-loopback: it is a third frontend, not a hosted service. It adds the TUI's git/GitHub URL
-ingestion, and uses browser file pickers in place of the native dialogs.
+For an Anthropic key that spans workspaces, also set `ANTHROPIC_WORKSPACE_ID=wrkspc_...`
+in `.env.local` or the server environment. Workspace-bound keys do not need this setting.
+
+Both providers ship. Fast/deep defaults are `gpt-5.6-terra` / `gpt-5.6-sol` and
+`claude-sonnet-5` / `claude-opus-5`. STRIDE and coordination use the deep slot;
+other phases use the fast slot. Choose a provider with `p`; press `e` on Scope to
+edit models, reasoning effort, optional phases and tree count. `v` tests the selected
+provider with a small real request. Availability depends on your provider account.
+
+## Terminal workflow
+
+1. Press `n` to name an assessment and define its scope.
+2. Press `s` to add a folder, code/document file or public Git repository; repeat
+   for complementary sources. `t` adds pasted notes or specifications.
+3. Use `r` to run with review gates. Inspect the selected phase; `e` opens its JSON
+   in `$VISUAL`, `$EDITOR`, or `vi`. `a` records reviewer identity and notes.
+4. Press `r` again after approval to continue. `f` runs/resumes an end-to-end draft
+   without marking any artifact as human-reviewed.
+5. Press `x` to export Markdown, PDF or portable JSON. Export refuses to overwrite
+   an existing file. Review and approval history appear in reports.
+
+| Key                       | Action                                                                 |
+| ------------------------- | ---------------------------------------------------------------------- |
+| Up / Down                 | Select project or TRACE phase                                          |
+| Enter                     | Open project / advance form                                            |
+| `j` / `k`, Page Down / Up | Scroll artifact                                                        |
+| `r`                       | Run/resume with review gates                                           |
+| `f`                       | Run/resume a complete draft                                            |
+| `F`                       | Restart a full draft after typing `RESTART`; clears generated analysis |
+| `g`                       | Regenerate selected phase, enforcing upstream review gates             |
+| `a` / `e`                 | Approve / edit selected artifact (Scope edits settings)                |
+| `s` / `t`                 | Add path/repository / text notes                                       |
+| `u`                       | Re-snapshot local and repository sources                               |
+| `d`                       | Remove a numbered source after typing `DELETE`                         |
+| `p` / `v`                 | Select provider / verify connection                                    |
+| `c`                       | Cancel active job; completed phases are retained                       |
+| `x`                       | Export report or project                                               |
+| `i`                       | Import portable JSON from the project list                             |
+| `l` / `?`                 | Run log / keyboard help                                                |
+| `D`                       | Delete selected assessment from the project list after confirmation    |
+| `R`                       | Refresh state                                                          |
+| Esc / `q`                 | Return to projects / quit TUI                                          |
+
+An assessment's review sequence is source inventory → TRACE model → ranked STRIDE
+threats → enabled attack trees → applicable coordination findings → final report.
+A draft run bypasses gates but all generated artifacts stay marked **DRAFT**.
+
+Source changes invalidate all generated analysis and the inventory approval. Editing
+an artifact invalidates its dependents and resets its own review. Changing analysis
+settings clears generated analysis. Refreshing an unchanged source preserves results.
+Edits use revision checks to avoid silently overwriting another client's changes.
+
+## Inputs and limits
+
+- Local folders/repositories and individual UTF-8 code, config, text, Markdown,
+  HTML, CSV, JSON, YAML, and other readable text files.
+- PDF and DOCX documents; scanned/image-only documents need OCR or a transcription.
+- Public HTTPS repositories on GitHub, GitLab and Bitbucket. A shallow clone is
+  pinned to a commit, snapshotted and deleted; no hooks or submodules are run.
+  Use a local checkout for private repositories or other Git hosts.
+- Inline text and file snapshots pushed over the API. A file snapshot may contain
+  UTF-8 text or base64 PDF/DOCX data; replacing it invalidates dependent analysis.
+
+Folder ingestion honors nested `.gitignore` rules and skips dependencies, generated
+folders, credential filenames, symlinks and unsupported binaries. Caps are 8 MiB per
+file, 32 MiB / 1,000 files per source, 100 sources / 2,000 files per project, 30,000 extracted
+characters per file, 500,000 per source and 1,000,000 per project. Truncation and
+extraction limitations are recorded. AI prompts use bounded excerpts distributed
+across the sources, prioritizing architecture/specification documents (up to 180,000 source characters). Prefer focused architecture
+and specification evidence over an entire monorepo.
+
+Snapshots have file IDs, hashes and line references. Model claims need matching
+source quotes or explicit assumptions. The engine validates object references,
+STRIDE coverage of assets/invariants/edges, tree connectivity and roadmap links.
+If a generated quote occurs exactly once in its cited file, the engine can correct
+mistaken line numbers and records the correction in generation metadata. It never
+fuzzy-matches invented quotes; ambiguous references still require correction.
+Coverage links are computed from the threats' object references. Missing coverage
+is explicitly flagged for review, and corrections are retained in generation metadata.
+These checks establish traceability; they cannot establish whether an AI judgement
+is correct. Source text is treated as evidence, never instructions.
+
+## API and storage
+
+The [API guide](docs/api.md) includes examples. The running server exposes
+`GET /v1/openapi.json` with request schemas and artifact schemas; progress is SSE
+with replay through `Last-Event-ID` or `?after=`. Jobs are independent of client
+connections. Restarting after a crash marks unfinished runs `interrupted`; resume
+retries the unfinished phase using saved artifacts.
+
+State defaults to `~/.local/share/aitm-v2` (`AITM_DATA_DIR` / `--data-dir` override).
+Each project is an atomic JSON document with source snapshots, artifacts, jobs,
+usage and review history. A process lock prevents multiple writers. The directory
+uses mode 0700, project files 0600. v2 does not read or modify the old desktop store.
+JSON imports create a new project ID, use portable snapshots and require fresh reviews.
 
 ```sh
-npm install
-npm run web        # equivalent to: aitm web
-# http://localhost:8790
+aitm export PROJECT_ID --format markdown --output report.md
+aitm export PROJECT_ID --format pdf --output report.pdf
+aitm export PROJECT_ID --format json --output project.json
 ```
 
-Projects and settings are shared with the desktop app and the TUI; API keys come from
-`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` or the same key file `aitm-tui` uses (the desktop
-app's OS-keychain vault is Electron-only). Since there is no authentication, do not bind
-it to a non-loopback address; forward the port over SSH instead. See
-`packages/cli/docs/server.md`.
-
-## Programmatic CLI
-
-`aitm -p` runs against the application core in-process; no web server is required.
-Progress goes to stderr, while the report or requested data goes to stdout so commands
-can be scripted. Add `--json` for structured project/list/status output.
+## Development and verification
 
 ```sh
-aitm -p ./architecture                # ingest, run every enabled phase, print report
-aitm -p new ./docs --name "Payments"  # ingest only; prints the project id
-aitm -p projects --json               # list shared projects
-aitm -p stride <project-id>           # run one phase
-aitm -p pipeline <project-id> --reset # clean re-run of the full pipeline
-aitm -p export <project-id> > report.md
+npm run check
+npm test
+npm run pack:check
+npm run test:live
 ```
 
-Use `aitm --help` for the full command and model/provider option list. Keys come from
-the same environment variables or non-Electron key file as the TUI and web UI.
+Automated tests cover engine sequencing and review gates, HTTP/SSE lifecycle,
+provider wire formats and failure modes, ingestion guards, evidence validation,
+persistence, exports, and interactive TUI actions against the real HTTP server.
+They use deterministic providers and do not spend API credit.
 
-## API server
-
-`aitm serve` starts the API-only HTTP/SSE adapter. It does not serve the browser UI;
-use `aitm web` for that. The server binds `127.0.0.1:8790` by default.
+`test:live` requires real keys, verifies both providers, then runs the full pipeline
+for each and exports evidence to ignored `artifacts/live-*`. It fails rather than
+substituting fixtures if a provider is unavailable. By default it uses the explicitly
+synthetic [custody example](examples/custody-architecture.md). Override the source:
 
 ```sh
-aitm serve
-curl http://127.0.0.1:8790/api/healthz
-curl http://127.0.0.1:8790/api/commands
-curl -sS -X POST http://127.0.0.1:8790/api/rpc \
-  -H 'content-type: application/json' \
-  -d '{"channel":"projects.list","payload":{}}'
+AITM_LIVE_SOURCE=/absolute/path/to/whitepaper.pdf npm run test:live
+AITM_LIVE_PROVIDER=openai AITM_LIVE_SOURCE=https://github.com/org/repo npm run test:live
 ```
 
-The command interface includes `pipeline.step` and `pipeline.run`; live provider
-progress is available from `GET /api/stream`. This is still AiTM's local, single-user
-server: there is no built-in authentication. Keep it on loopback or put it behind an
-authenticated TLS tunnel/proxy. See `packages/cli/docs/server.md` for the complete surface.
+To resume a failed live check without repeating completed phases, set
+`AITM_LIVE_DIR=artifacts/live-<timestamp>` along with `AITM_LIVE_PROVIDER` and rerun.
+The saved source snapshots remain the evidence for that assessment.
 
-## Develop
-
-```sh
-npm install
-npm run dev        # launch with devtools
-npm start          # launch
-npm run aitm -- --help
-npm run check      # syntax check
-npm test           # unit tests
-npm run pack:check # verify published package contents
-```
-
-## Build installers
-
-```sh
-npm run dist        # current platform
-npm run dist:mac    # macOS .dmg + .zip        (shipped)
-npm run dist:win    # Windows NSIS             (unsigned, untested)
-npm run dist:linux  # AppImage + .deb          (unsigned, untested)
-```
-
-Local builds are unsigned. Release CI requires all signing and notarization credentials
-and refuses to publish without them; see [electron-builder.js](electron-builder.js).
-
-The Windows and Linux targets remain configured so a local build works, but they are not
-signed, not tested, and not published to releases.
-
-## Release (CI)
-
-All four manifests and the lockfile use one version. Set it with:
-
-```sh
-npm run version:set -- 0.3.1
-npm install --package-lock-only
-npm run verify:release -- v0.3.1
-```
-
-Pushing the matching `v*` tag runs [.github/workflows/release.yml](.github/workflows/release.yml).
-The workflow installs from the lockfile, runs syntax checks, all tests, verifies package
-contents, and rejects a tag/version mismatch before publishing anything. It then:
-
-- publishes the engine, shared workbench, and Electron-free `@oak-security/aitm` CLI to
-  GitHub Packages;
-- builds an explicit Apple Silicon (`arm64`) desktop artifact; and
-- publishes a non-draft GitHub Release containing the signed and notarized DMG/ZIP.
-
-Windows and Linux are deliberately not built in CI. All of these repository secrets are
-required; a release fails rather than silently producing an unsigned macOS build:
-
-| Secret | Meaning |
-| --- | --- |
-| `MAC_CSC_LINK` | base64 of the Developer ID Application `.p12` |
-| `MAC_CSC_KEY_PASSWORD` | password for that `.p12` |
-| `APPLE_ID` | Apple ID email |
-| `APPLE_APP_SPECIFIC_PASSWORD` | app-specific password |
-| `APPLE_TEAM_ID` | team id (e.g. `V863M8NPN9`); also enables notarization |
-
-```sh
-git tag v0.3.1 && git push origin v0.3.1
-```
-
-Export the cert for `MAC_CSC_LINK`: `base64 -i DeveloperID.p12 | pbcopy`.
-
-## Documentation
-
-- [AGENT.md](AGENT.md) — build/run conventions and the security/branding invariants.
-- [SPEC.md](SPEC.md) — product and technical specification.
-- [packages/engine/README.md](packages/engine/README.md) — the UI-independent engine.
-- [packages/cli/README.md](packages/cli/README.md) — the separately installed CLI.
-- [packages/cli/docs/tui.md](packages/cli/docs/tui.md) — the terminal frontend.
-- [packages/cli/docs/server.md](packages/cli/docs/server.md) — web and server adapters.
-
-## Data location
-
-All modes share one data directory: `~/Library/Application Support/AiTM`
-(macOS), `%APPDATA%\AiTM` (Windows), `~/.config/AiTM` (Linux), holding `projects/*.json`
-and `settings.json`. A project created in one mode opens in every other mode.
-`AITM_DATA_DIR` overrides it for all non-Electron modes. The desktop app's sidebar has a
-"Reveal data folder" link.
-
-API keys are the exception, because the OS keychain is only reachable from Electron:
-
-| Frontend | Key storage |
-| --- | --- |
-| Desktop | `keystore.bin` in the data dir, encrypted via the OS keychain |
-| TUI, web, CLI, server | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`, else `~/.config/aitm-tui/keys.json` (mode 600) |
-
-So a key entered in the desktop app is not visible to non-Electron modes, and vice versa.
-
-## License
-
-Proprietary. All rights reserved.
+See [SPEC.md](SPEC.md) for the engine contract and [original-spec.md](docs/original-spec.md)
+for historical context. The former desktop and browser applications are preserved
+in Git history, not part of this runtime.
