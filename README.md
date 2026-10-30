@@ -10,6 +10,9 @@
 
 A reusable engine for the [TRACE methodology](https://github.com/oak-security/TRACE/blob/main/METHODOLOGY.md), with terminal and web interfaces and a local API. By Oak Security.
 
+AiTM was developed by Dr. Stefan Beyer as a reference implementation for
+AI-assisted tooling that supports his TRACE threat hunting methodology.
+
 AiTM runs in **one process**. The TUI calls the engine directly; the API exposes the
 same engine to the browser workbench and integrations. The engine owns ingestion, saved assessments, AI calls,
 the sequential pipeline, reviews and reports.
