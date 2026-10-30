@@ -8,7 +8,7 @@
 /_/   \_\___| |_| |_|  |_|    o-----o
 ```
 
-A reusable engine for the [TRACE methodology](https://github.com/oak-security/TRACE/blob/main/METHODOLOGY.md), with terminal and web interfaces and a local API. By Oak Security.
+A reusable engine for the [TRACE methodology](https://github.com/oak-security/TRACE/blob/main/METHODOLOGY.md), with terminal and web interfaces and a local API.
 
 AiTM was developed by Dr. Stefan Beyer as a reference implementation for
 AI-assisted tooling that supports his TRACE threat hunting methodology.
