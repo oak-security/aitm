@@ -6,8 +6,8 @@ specification at docs/original-spec.md.
 
 ## Architecture
 
-- One Node.js 22+ ESM package. `src/engine` owns all domain state, phases, ingestion,
-  providers, evidence validation and reports. It never imports the API or TUI.
+- One Node.js ESM package (runtime pinned in `.nvmrc`). `src/engine` owns all domain
+  state, phases, ingestion, providers, evidence validation and reports. It never imports the API or TUI.
 - `src/api/server.js` is the versioned HTTP/SSE transport. Validate every request.
 - `src/web` is a browser client of the API, with no duplicate domain engine.
 - `src/tui` calls the engine directly and subscribes to its change events. The API

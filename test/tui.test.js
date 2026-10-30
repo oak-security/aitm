@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
+import { press } from './tui-input.js';
 import { render } from 'ink-testing-library';
 import { App } from '../src/tui/app.js';
 import { reportLines } from '../src/tui/report-reader.js';
@@ -20,10 +21,6 @@ async function waitFor(check, hint) {
   }
   assert.fail(hint());
 }
-const press = async (ui, key) => {
-  ui.stdin.write(key);
-  await new Promise((r) => setTimeout(r, 80));
-};
 
 test('settings masks and replaces a key immediately, persists privately and leaves assessment data untouched', async (t) => {
   const { engine, p, providers, dir } = await setup(t);

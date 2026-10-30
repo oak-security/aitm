@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
+import { press } from './tui-input.js';
 import { render } from 'ink-testing-library';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,10 +9,6 @@ import { Workbench } from '../src/tui/workbench.js';
 import { setup, finish } from './helpers.js';
 import { zipFixture } from './zip-fixture.js';
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-async function press(ui, input) {
-  ui.stdin.write(input);
-  await pause(100);
-}
 async function waitFor(ui, text) {
   for (let i = 0; i < 100; i++) {
     if (ui.lastFrame()?.includes(text)) return;

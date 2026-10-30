@@ -16,9 +16,13 @@ the sequential pipeline, reviews and reports.
 
 ## Install and launch
 
-Node.js 22.3+ and Git are required. From this checkout:
+Node.js 26.13.0+ (LTS), npm 12.2.1+ and Git are required. With nvm installed,
+select the pinned runtime and install dependencies from this checkout:
 
 ```sh
+nvm install
+nvm use
+npm install --global npm@12.2.1
 npm ci
 npm_config_prefix="$HOME/.local" npm link
 aitm
