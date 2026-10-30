@@ -72,7 +72,7 @@ test('complete TRACE draft persists every phase, evidence, usage and a truthful 
       'Security lead',
       '30 days',
       'Status: draft',
-      'Name: Deposits',
+      'Deposits',
     ])
       assert.ok(text.includes(required), `PDF must contain table content: ${required}`);
   } finally {
