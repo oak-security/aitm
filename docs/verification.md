@@ -1,4 +1,28 @@
-# Verification record — 2026-09-06
+# Verification records
+
+These are historical checkpoints, not instructions or a statement about a running
+instance. Test counts, local paths, installed examples and process status describe
+the machine at the time of each check. Earlier daemon, uppercase-command and PDF
+behavior has since been superseded. Use [README.md](../README.md) and
+[SPEC.md](../SPEC.md) for current behavior.
+
+## Documentation and licensing — 2026-10-30
+
+Checked the README, specification, API guide and implementation notes against the
+current CLI, configuration, API routes and PDF renderer. Updated launch modes,
+headless SSH access, missing-key behavior, storage overrides and PDF export details.
+Marked the former specification and older verification results as historical.
+Added the MIT license with Copyright (c) 2026 Oak Security and matching package/
+lockfile metadata. Included the bundled BDO Grotesk fonts' separate OFL text and attribution.
+
+`npm run check`, all 97 Node tests, all eight Chromium tests, `npm run pack:check`
+and `git diff --check` passed. Package inspection confirmed both LICENSE and the
+font's OFL.txt are included. Relative documentation links resolve. API/browser tests
+were rerun outside the restricted sandbox to allow local listeners and Chromium;
+the package check used a writable temporary npm cache. No live provider calls were
+made. These changes affect documentation and license metadata, not application behavior.
+
+## Initial verification — 2026-09-06
 
 The fresh engine, API and TUI are implemented and verified, including real OpenAI
 and Anthropic pipelines on the existing Uniswap v4 whitepaper. Both completed
@@ -535,7 +559,6 @@ without aborting the run. This verifies classification with a real provider, not
 the remaining pipeline phases. The existing user-started run was monitored through
 the API without restarting it or initiating additional provider requests. Its final
 status and generation metadata are in `artifacts/qa/classification-live/status.json`.
-
 
 ## Sequential handoff and reference reliability
 

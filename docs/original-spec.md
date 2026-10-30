@@ -1,4 +1,8 @@
-# Specification — AiTM · AI Threat Modeller (Oak Security edition)
+# Historical specification — AiTM · AI Threat Modeller (Oak Security edition)
+
+This document records the former application. It is retained for design history,
+not current installation or runtime instructions. Use [README.md](../README.md)
+and [SPEC.md](../SPEC.md) for the current v2 implementation.
 
 Status: v0.3, implemented · Owner: Stefan Beyer · Drafted 2026-06-18, revised 2026-08-31
 

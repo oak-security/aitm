@@ -10,7 +10,7 @@ runs the engine and API without a TUI.
 phase registry, default scope and artifact JSON schemas. Provider keys are configured in the owning process;
 `GET /v1/providers` exposes only configuration booleans and default model IDs.
 It also includes `keySource` (saved settings, environment, `.env.local` or session),
-never the key value. TUI Settings (`s`) and browser Settings save replacements privately and updates the
+never the key value. TUI Settings (`s`) and browser Settings save replacements privately and update the
 shared provider immediately. Credentials are not project settings and are not
 accepted through project PATCH/import operations. `aitm configure` uses the same
 private store; saved keys take precedence over environment values on startup.
@@ -47,8 +47,10 @@ curl -s http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs \
   -d '{"mode":"full"}'
 ```
 
-Starting a run returns HTTP 202 with a job ID. `mode: "review"` is the default;
-it pauses at human review gates. `draft` bypasses gates without approving artifacts.
+A successful run request returns HTTP 202 with a job ID. If the selected provider
+has no key, it returns HTTP 422 with code `missing_key` before creating a job.
+
+`mode: "review"` is the default; it pauses at human review gates. `draft` bypasses gates without approving artifacts.
 `full` runs the complete pipeline without review pauses, enables trees with
 `treeLimit: 3`, and changes coordination from `off` to `auto` when needed. Trees are
 required for every one of the top three STRIDE threats (risk = likelihood × impact;
@@ -209,6 +211,15 @@ reader. Viewing never writes PDF or Markdown files. The PDF endpoint generates a
 response only when requested; the TUI's `x` export requires an explicit format and
 destination. Reports identify AiTM as the generating tool and disclaim Oak Security
 authorship, review and endorsement, with no hard-coded personal author name.
+
+The PDF is rendered directly from saved structured artifacts, with a risk matrix,
+STRIDE charts, attack-tree diagrams, roadmap and linked evidence appendix. It has
+clickable contents, bookmarks and page numbers; enabled optional phases determine
+which sections appear. Export makes no provider calls and does not change project
+state. Re-export saved projects to apply the current layout. The response uses
+`application/pdf` and an attachment filename; Markdown uses `text/markdown`.
+Portable JSON exports include full source snapshots; PDFs include cited quotes
+and source metadata, not every source file's complete text.
 
 ## Configuration and reviews
 

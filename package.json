@@ -7,13 +7,14 @@
     ".": "./src/index.js",
     "./client": "./src/client.js"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "bin": {
     "aitm": "src/cli.js"
   },
   "files": [
     "src",
     "README.md",
+    "LICENSE",
     "SPEC.md",
     "docs/api.md",
     "examples",

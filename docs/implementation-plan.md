@@ -1,9 +1,10 @@
 # AiTM v2 implementation and acceptance
 
-The user requested a fresh implementation and then simplified the runtime: one
-process owns the reusable TRACE engine, direct TUI and optional HTTP interface. Iteration one ships the TUI,
-launched by `aitm` (also `AITM`), with an ASCII logo. The former application remains
-in Git history; `original-spec.md` preserves its product requirements.
+Implementation status for v2, updated 2026-10-30. One process owns the reusable
+TRACE engine, direct TUI and local HTTP API serving the browser workbench. Launch
+with lowercase `aitm`, `aitm web`, or `aitm serve`; see [the README](../README.md)
+for setup and SSH access. The former application remains in Git history;
+[original-spec.md](original-spec.md) preserves its historical product requirements.
 
 ## Architecture
 
@@ -34,7 +35,7 @@ in Git history; `original-spec.md` preserves its product requirements.
 - [x] Durable projects/runs/events, editing, approvals, import/export, Markdown/PDF.
 - [x] Versioned API validates inputs, rejects hostile browser origins/hosts, exposes
       jobs, cancellation and replayable SSE; secrets never enter responses or exports.
-- [x] `aitm` / `AITM`: project chooser and explicit-source shortcuts, logo, provider settings, progress,
+- [x] `aitm`: project chooser and explicit-source shortcuts, logo, provider settings, progress,
       review/edit, cancel, sync/export, and graceful shutdown.
 - [x] Automated engine/API/provider/ingestion/TUI tests and real PTY exercise.
 - [x] Live OpenAI and Anthropic pipelines with user keys on the existing Uniswap v4
@@ -75,10 +76,18 @@ https://platform.claude.com/docs/en/models/overview
 - [x] Single-page public HTML intake with no script execution or link crawling.
 - [x] Full pipeline combines all project sources; switching projects keeps jobs active.
 
-## Verification status (2026-09-06)
+## Runtime and PDF updates (2026-10-30)
 
-Acceptance is implemented and verified; see verification.md. Both real provider
-pipelines completed, producing validated draft artifacts and Markdown/PDF/JSON
-exports. All 58 pages of their final PDFs were visually inspected. The installed
-TUI includes both completed examples. Provider credentials remain private and
-outside version control.
+- [x] Node/npm requirements and pinned dependencies updated; runtime selected by `.nvmrc`.
+- [x] Orca/container deployment tooling removed; local Node runtime documented.
+- [x] Structured PDF layout with risk charts, attack-tree diagrams, roadmap,
+      linked evidence, bookmarks and pagination checks.
+- [x] MIT license with Oak Security copyright; bundled font license preserved separately.
+
+## Historical verification (2026-09-06)
+
+At that checkpoint, both real provider pipelines completed, producing validated
+draft artifacts and Markdown/PDF/JSON exports. All 58 pages of those PDFs were
+visually inspected. Those examples were local verification data, not bundled
+projects. See [verification.md](verification.md) for dated results and limitations;
+historical page counts and machine state do not describe the current installation.

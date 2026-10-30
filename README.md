@@ -14,6 +14,22 @@ AiTM runs in **one process**. The TUI calls the engine directly; the API exposes
 same engine to the browser workbench and integrations. The engine owns ingestion, saved assessments, AI calls,
 the sequential pipeline, reviews and reports.
 
+## Interfaces and run options
+
+Two user interfaces share one engine: the terminal UI and browser workbench.
+Integrations can use the local HTTP/SSE API or import the JavaScript engine.
+
+| Command      | Starts                                 | Checkout equivalent                                |
+| ------------ | -------------------------------------- | -------------------------------------------------- |
+| `aitm`       | Terminal UI, engine and API            | `npm start` (also `npm run tui` or `npm run aitm`) |
+| `aitm web`   | Engine and API, then opens the browser | `npm run web`                                      |
+| `aitm serve` | Foreground engine and API              | `npm run server`                                   |
+
+All three modes serve the browser workbench. Run one instance per data directory;
+open its existing URL to add a browser client. Pass checkout-script arguments after
+`--`, for example `npm run web -- --no-open`. Docker is not required, and this
+repository does not include Docker or Orca deployment tooling.
+
 ## Install and launch
 
 Node.js 26.13.0+ (LTS), npm 12.2.1+ and Git are required. With nvm installed,
@@ -27,6 +43,10 @@ npm ci
 npm_config_prefix="$HOME/.local" npm link
 aitm
 ```
+
+If Node and npm already meet those versions, skip the nvm/runtime commands.
+`npm link` points the installed command at this checkout, so subsequent checkout
+updates are used on the next launch. Run `npm ci` again after dependency changes.
 
 Make sure `~/.local/bin` is on `PATH`. The command is lowercase: `aitm`.
 `npm start` runs from the checkout.
@@ -123,13 +143,36 @@ Navigation stays outside the scrolling report. On small screens, the menu button
 opens the sidebar. The UI uses same-origin HTTP/SSE and bundled assets only; source
 and model text cannot execute HTML or load remote images in the report viewer.
 
+### Headless Linux over SSH
+
+On the server, run `aitm web --no-open`. On your own computer, open a separate
+terminal and forward the local port (replace `USER@SERVER` with your SSH login):
+
+```sh
+ssh -N -L 8790:127.0.0.1:8790 USER@SERVER
+```
+
+Keep both sessions open and visit `http://127.0.0.1:8790/` in your local browser.
+No browser or display server is needed on the Linux host. Local source paths refer
+to files on that host; browser uploads come from your own computer. Ctrl+C in the
+server's AiTM terminal saves and stops the instance. Closing only the tunnel or
+browser leaves the server process running while its terminal session remains open.
+
 ## Provide API keys
+
+AiTM opens without a provider key. You can create projects, import sources, and
+read or export existing results. It does not automatically prompt for a key on
+startup. Starting analysis requires a key for the project's selected provider;
+a missing key produces a configuration message before creating a run. With
+`--full`, that error ends the launch. Use `aitm configure` first, or configure
+credentials through Settings and then start the run.
 
 In the TUI press **`s` — Settings → API keys**, then select **OpenAI** or
 **Anthropic** with Up/Down and Enter. Paste a new key into the masked field to add
 or replace it. Enter with an empty key keeps the existing value; Escape cancels.
 Keys are saved privately to `~/.config/aitm/keys.json` (mode 0600) and become active
-immediately. Updating a key does not clear assessment results or change the other
+immediately. `XDG_CONFIG_HOME` overrides the default `~/.config` base directory.
+Updating a key does not clear assessment results or change the other
 provider's key. The picker shows whether each provider is configured and where its
 active key came from; it never displays the key itself.
 
@@ -345,7 +388,8 @@ with replay through `Last-Event-ID` or `?after=`. Jobs are independent of client
 connections. Restarting after a crash marks unfinished runs `interrupted`; resume
 retries the unfinished phase using saved artifacts.
 
-State defaults to `~/.local/share/aitm-v2` (`AITM_DATA_DIR` / `--data-dir` override).
+State defaults to `$XDG_DATA_HOME/aitm-v2`, or `~/.local/share/aitm-v2` when unset
+(`AITM_DATA_DIR` / `--data-dir` override). `AITM_PORT` / `--port` overrides port 8790.
 Each project is an atomic JSON document with source snapshots, artifacts, jobs,
 usage and review history. A process lock prevents multiple writers. The directory
 uses mode 0700, project files 0600. v2 does not read or modify the old desktop store.
@@ -364,6 +408,23 @@ curl -fsS 'http://127.0.0.1:8790/v1/projects/PROJECT_ID/report?format=markdown' 
 curl -fsS 'http://127.0.0.1:8790/v1/projects/PROJECT_ID/report?format=pdf' -o report.pdf
 curl -fsS http://127.0.0.1:8790/v1/projects/PROJECT_ID/export -o project.json
 ```
+
+## PDF reports
+
+PDF exports use a dedicated A4 layout with embedded BDO Grotesk, readable body
+text, page numbers, clickable contents and PDF bookmarks. They include:
+
+- An executive summary, a 5×5 likelihood/impact matrix and STRIDE category charts.
+- Ranked threat details, connected attack-tree diagrams and coordination analysis
+  when those phases are enabled.
+- A mitigation roadmap grouped into immediate, 30-, 60- and 90-day actions.
+- The TRACE model, coverage, linked evidence quotes, source inventory and review record.
+
+The evidence appendix preserves full cited quotes and source metadata; large
+assessments can produce long reports. The portable JSON export contains the
+complete source snapshots. PDF export uses saved artifacts and makes no AI calls.
+Re-export an existing assessment to use the current layout; no analysis rerun is
+needed. Draft status remains until every enabled review gate is approved.
 
 ## Development and verification
 
@@ -401,3 +462,12 @@ The saved source snapshots remain the evidence for that assessment.
 See [SPEC.md](SPEC.md) for the engine contract and [original-spec.md](docs/original-spec.md)
 for historical context. The former implementation is preserved in Git history;
 the current web workbench uses the v2 engine and API.
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 Oak Security.
+
+Bundled BDO Grotesk fonts retain their [SIL Open Font License 1.1](src/assets/OFL.txt)
+and [font attribution](src/assets/README.md). Dependencies retain their respective licenses.
+The referenced TRACE methodology is by Dr. Stefan Beyer at Oak Security and has
+its own [CC BY 4.0 license](https://github.com/oak-security/TRACE/blob/main/LICENSE.md).

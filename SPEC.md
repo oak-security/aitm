@@ -76,15 +76,15 @@ Single-phase reruns of these assessments require a complete pipeline run first.
 
 ## TRACE artifacts and execution
 
-| Phase          | Artifact                                                                                             | Gate             | Optionality                               |
-| -------------- | ---------------------------------------------------------------------------------------------------- | ---------------- | ----------------------------------------- |
-| 0 scope        | Assessment boundary and source inventory                                                             | Human approval   | Required                                  |
-| 1 ingest       | Provisional inventory/scope summary and domain/pillar classification                    | No separate gate | Required                                  |
-| 2 model        | Threat actors, roles, protected assets, critical invariants, components, typed edges and questions   | Human approval   | Required                                  |
-| 3 stride       | Ranked threats, six STRIDE categories, controls, confidence, coverage rationale                      | Human approval   | Required                                  |
-| 4 trees        | Top-threat attack trees, AND/OR branches, assumptions, prerequisites, leaf mitigations and omissions | Human approval   | On by default                             |
+| Phase          | Artifact                                                                                             | Gate             | Optionality                              |
+| -------------- | ---------------------------------------------------------------------------------------------------- | ---------------- | ---------------------------------------- |
+| 0 scope        | Assessment boundary and source inventory                                                             | Human approval   | Required                                 |
+| 1 ingest       | Provisional inventory/scope summary and domain/pillar classification                                 | No separate gate | Required                                 |
+| 2 model        | Threat actors, roles, protected assets, critical invariants, components, typed edges and questions   | Human approval   | Required                                 |
+| 3 stride       | Ranked threats, six STRIDE categories, controls, confidence, coverage rationale                      | Human approval   | Required                                 |
+| 4 trees        | Top-threat attack trees, AND/OR branches, assumptions, prerequisites, leaf mitigations and omissions | Human approval   | On by default                            |
 | 5 coordination | Actor combinations, thresholds, incentives, shared dependencies, consequences and mitigations        | Human approval   | Auto from profile/model; on/off override |
-| 6 report       | Executive summary, linked mitigation roadmap, residual risks, questions and next steps               | Human approval   | Required                                  |
+| 6 report       | Executive summary, linked mitigation roadmap, residual risks, questions and next steps               | Human approval   | Required                                 |
 
 Each phase produces schema-validated data. TRACE objects require exact evidence
 quotes/line references or explicit inferred assumptions. Before validation,
@@ -148,7 +148,10 @@ active provider; failed writes preserve the old credentials. Replacements apply 
 subsequent requests without a restart and do not invalidate artifacts. Keep both
 old and current credentials redacted for in-flight responses. Files use OS
 permissions; encryption is not claimed. CLI `aitm configure` uses the same store.
-Multi-workspace Anthropic keys use the process's `ANTHROPIC_WORKSPACE_ID` setting.
+Multi-workspace Anthropic keys use a saved workspace ID or the process's
+`ANTHROPIC_WORKSPACE_ID` setting. A saved empty value clears the environment default.
+Startup, source import and existing report exports work without a provider key;
+starting analysis without the selected provider's key fails before a run is created.
 Anthropic schemas convey unsupported bounds in descriptions; the engine still
 enforces the original complete schemas locally.
 No source material leaves the device until a user starts an AI run.
@@ -211,7 +214,14 @@ Provider connection testing uses `V`.
 Report assembly is deterministic from validated artifacts. Include scope, provenance,
 TRACE model, ranked threats, coverage, enabled optional analyses, roadmap, unresolved
 questions and review records. Never include disabled-phase content. The report is
-marked draft until all enabled review gates are approved. PDF embeds Oak BDO Grotesk.
+marked draft until all enabled review gates are approved. PDF embeds BDO Grotesk
+under its separate SIL Open Font License. Render structured artifacts directly in
+an A4 layout with readable text, page numbers, clickable contents and bookmarks.
+Include likelihood/impact and STRIDE charts, ranked threats, connected attack-tree
+diagrams, a time-grouped mitigation roadmap, and linked evidence/source appendices.
+Preserve full cited quotes and source metadata with pagination that avoids clipping;
+full source snapshots remain available through JSON export. Re-exporting existing
+artifacts applies the current layout without provider calls or state changes.
 Do not hard-code a personal author name. State prominently: Generated by AiTM using
 AI. This report was not authored, reviewed or endorsed by Oak Security. It needs
 expert judgement and is not a code audit or a warranty. Retain explicit human review
