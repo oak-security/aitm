@@ -1,5 +1,8 @@
+import { readToken } from './token.js';
+
 export class ApiClient {
-  constructor(url = 'http://127.0.0.1:8790') {
+  // The token defaults to AITM_TOKEN, then to the token file of the current user.
+  constructor(url = 'http://127.0.0.1:8790', { token } = {}) {
     const parsed = new URL(url);
     if (
       parsed.protocol !== 'http:' ||
@@ -12,6 +15,11 @@ export class ApiClient {
     )
       throw new Error('Use a loopback HTTP API URL, for example http://127.0.0.1:8790.');
     this.url = parsed.origin;
+    this.token = token;
+  }
+  authorization() {
+    this.token ??= process.env.AITM_TOKEN || readToken();
+    return this.token ? { authorization: `Bearer ${this.token}` } : {};
   }
   async request(method, path, body, { signal, format = 'json' } = {}) {
     let response;
@@ -20,9 +28,11 @@ export class ApiClient {
         method,
         signal,
         redirect: 'error',
-        ...(body === undefined
-          ? {}
-          : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+        headers: {
+          ...this.authorization(),
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -49,7 +59,11 @@ export class ApiClient {
   }
   async *events(projectId, runId, { after = 0, signal } = {}) {
     const url = `${this.url}${this.projectPath(projectId)}/runs/${encodeURIComponent(runId)}/events?after=${after}`;
-    const response = await fetch(url, { signal, redirect: 'error' });
+    const response = await fetch(url, {
+      signal,
+      redirect: 'error',
+      headers: this.authorization(),
+    });
     if (!response.ok) throw new Error(`Cannot stream progress (HTTP ${response.status}).`);
     const decoder = new TextDecoder();
     let pending = '';

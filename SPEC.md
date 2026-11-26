@@ -22,6 +22,9 @@ attachment or stop command. `aitm serve` provides a foreground API without the T
 The API serves the web UI at `/`; `aitm web [source]` opens the browser and
 `--no-open` prints its URL. Browser disconnects do not cancel engine jobs.
 Only loopback binding is supported; this is a local, single-user application.
+Each API request must carry the private access token (see Persistence and API).
+`aitm doctor` checks the local setup without changing it. `aitm token` prints the
+access token, and `--rotate` replaces it.
 
 ## Inputs and provenance
 
@@ -152,6 +155,12 @@ Multi-workspace Anthropic keys use a saved workspace ID or the process's
 `ANTHROPIC_WORKSPACE_ID` setting. A saved empty value clears the environment default.
 Startup, source import and existing report exports work without a provider key;
 starting analysis without the selected provider's key fails before a run is created.
+When no provider key is configured, both interfaces start on Settings. Settings is
+reachable without an open project in both interfaces.
+Model defaults and the offline catalog live in `src/engine/schema.js`. For Claude
+models that have safety classifiers, requests opt in to the server-side refusal
+fallback. A fallback after partial output fails the phase, because the two parts
+cannot form one valid document. Record the model that produced each result.
 Anthropic schemas convey unsupported bounds in descriptions; the engine still
 enforces the original complete schemas locally.
 No source material leaves the device until a user starts an AI run.
@@ -168,6 +177,15 @@ HTTP resources are versioned under `/v1`; `/v1/openapi.json` provides schemas an
 `/v1/meta` the phase registry. Jobs return immediately with HTTP 202. SSE supports
 replay with Last-Event-ID or after. Errors have a stable code and safe message.
 Validate body sizes, path IDs, Host, Origin and browser fetch metadata.
+
+Authentication: one random 256-bit token per user, saved with mode 0600 next to the
+keys and stable across restarts. Accept it as a bearer token or as the
+`HttpOnly`, `SameSite=Strict` cookie that `GET /?token=` sets. Compare in constant
+time. Only `/v1/health` (service name and versions) and the static workbench files
+answer without it. The reason: source intake reads local paths, so an open
+loopback API would let other users and processes of the host read the operator's
+files, replace provider keys and spend provider credit. `--allowed-host` adds
+loopback names to the Host allowlist for SSH forwards; it never admits other names.
 
 ## Terminal and reports
 

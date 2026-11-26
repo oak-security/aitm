@@ -17,17 +17,21 @@ const assets = new Map([
     return [`/ui/${file}`, [file, 'font/woff2']];
   }),
 ]);
+export const PAGE_HEADERS = {
+  'content-type': 'text/html; charset=utf-8',
+  'content-security-policy':
+    "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+  'referrer-policy': 'no-referrer',
+  'x-frame-options': 'DENY',
+};
 export async function serveWeb(req, res, pathname) {
   const asset = assets.get(pathname);
   if (!asset || !['GET', 'HEAD'].includes(req.method)) return false;
   const content = await readFile(new URL(`../web/${asset[0]}`, import.meta.url));
   res.writeHead(200, {
+    ...PAGE_HEADERS,
     'content-type': asset[1],
     'content-length': content.length,
-    'content-security-policy':
-      "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-    'referrer-policy': 'no-referrer',
-    'x-frame-options': 'DENY',
   });
   res.end(req.method === 'HEAD' ? undefined : content);
   return true;

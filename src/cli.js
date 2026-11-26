@@ -8,6 +8,7 @@ import { Providers } from './engine/providers.js';
 import { startApplication, openAssessment } from './application.js';
 import { LOGO, TAGLINE, terminalText } from './tui/logo.js';
 import { sourceInput } from './source-input.js';
+import { VERSION } from './version.js';
 
 const HELP = `${LOGO}\n${TAGLINE}
 
@@ -15,12 +16,17 @@ Usage: aitm [path-or-url] [options]   Open the project chooser; a source argumen
        aitm web [path-or-url]        Open the web project chooser
        aitm serve                   Run just the engine and local API
        aitm configure               Enter OpenAI and Anthropic keys privately
+       aitm doctor [--live]         Check Node.js, Git, keys, storage and the port
+       aitm token [--rotate]        Print (or replace) the private API access token
 
 Options:
   --project ID    Open a saved project by ID
   --full          Start/resume the full pipeline with top 3 attack trees
   --no-open       With web, print the URL without opening a browser
   --port NUMBER   Local API port (default 8790)
+  --allowed-host HOST:PORT
+                  Also accept this loopback Host header, for an SSH forward
+                  to a different local port (for example 127.0.0.1:9000)
   --data-dir DIR  Private storage (default ~/.local/share/aitm-v2)
   --help, -h      Show this help
   --version       Show the version
@@ -40,6 +46,8 @@ cancelled and completed steps are retained. No background server is left running
 Inside the TUI: o projects, n new project, i add sources, b manage sources,
 s settings/API keys, p provider/model lists, f full pipeline,
 v view Markdown, x export, ? help.
+The browser and API need the private access token. AiTM prints a URL that
+contains it. Scripts send Authorization: Bearer "$(aitm token)".
 AI runs send source content to your selected provider. Results remain drafts
 until reviewed. Use aitm serve for an API that runs without the TUI.
 `;
@@ -69,10 +77,13 @@ async function main() {
       full: { type: 'boolean' },
       project: { type: 'string' },
       'no-open': { type: 'boolean' },
+      'allowed-host': { type: 'string', multiple: true },
+      live: { type: 'boolean' },
+      rotate: { type: 'boolean' },
     },
   });
   if (values.help) return console.log(HELP);
-  if (values.version) return console.log('2.0.0');
+  if (values.version) return console.log(VERSION);
   const web = positionals[0] === 'web';
   if (positionals.length > (web ? 2 : 1))
     throw new Error(
@@ -80,6 +91,22 @@ async function main() {
     );
   const command = positionals[0];
   if (command === 'configure') return configureKeys();
+  if (values.live && command !== 'doctor') throw new Error('--live is only for aitm doctor.');
+  if (values.rotate && command !== 'token') throw new Error('--rotate is only for aitm token.');
+  if (command === 'doctor') {
+    const { doctor } = await import('./doctor.js');
+    if (await doctor({ port: values.port, dataDir: values['data-dir'], live: values.live }))
+      process.exitCode = 1;
+    return;
+  }
+  if (command === 'token') {
+    console.log(loadConfig().apiToken({ rotate: values.rotate }));
+    if (values.rotate)
+      console.error(
+        'New token saved. Restart running AiTM instances; open their new URL in the browser.',
+      );
+    return;
+  }
   const headless = command === 'serve';
   const explicitSource = web ? positionals[1] : headless ? undefined : command;
   if (values.project && (explicitSource || headless))
@@ -101,7 +128,12 @@ async function main() {
     dataDir: path.resolve(values['data-dir'] || config.dataDir),
     providers: new Providers(config),
     port,
+    token: config.apiToken(),
+    allowedHosts: values['allowed-host'],
   });
+  const keys = Object.entries(config.keySources)
+    .map(([provider, source]) => `${provider === 'openai' ? 'OpenAI' : 'Anthropic'} ${source}`)
+    .join(' · ');
   let ui,
     stopping = false;
   let resolveSignal;
@@ -120,7 +152,7 @@ async function main() {
   try {
     if (headless) {
       console.log(
-        `AiTM engine and API: ${app.url}\nData: ${app.engine.store.directory}\nCtrl+C to save and quit.`,
+        `AiTM engine and API: ${app.url}\nWeb workbench: ${app.webUrl()}\nAPI clients: Authorization: Bearer "$(aitm token)"\nData: ${app.engine.store.directory}\nKeys: ${keys}\nCtrl+C to save and quit.`,
       );
       await signalReceived;
       return;
@@ -135,9 +167,9 @@ async function main() {
     if (stopping) return;
     if (values.full) app.engine.run(project.id, { mode: 'full' });
     if (web) {
-      const url = project ? `${app.url}/#/projects/${project.id}/overview` : `${app.url}/`;
+      const url = app.webUrl(project ? `#/projects/${project.id}/overview` : '');
       console.log(
-        `AiTM web workbench: ${url}\nData: ${app.engine.store.directory}\nCtrl+C to save and quit.`,
+        `AiTM web workbench: ${url}\nThe URL contains your private access token. Do not share it.\nData: ${app.engine.store.directory}\nKeys: ${keys}\nCtrl+C to save and quit.`,
       );
       if (!values['no-open']) {
         const [program, args] =
@@ -166,6 +198,7 @@ async function main() {
         engine: app.engine,
         projectId: project?.id,
         apiUrl: app.url,
+        webUrl: app.webUrl(),
         initialNotice: project?.artifacts.report
           ? 'Report ready. v View Markdown · x Export · ? Help.'
           : reused

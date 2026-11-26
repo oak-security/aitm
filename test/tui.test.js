@@ -8,7 +8,7 @@ import { reportLines } from '../src/tui/report-reader.js';
 import { markdownReport } from '../src/engine/report.js';
 import { LOGO, terminalText } from '../src/tui/logo.js';
 import { ApiClient } from '../src/client.js';
-import { setup, serve, finish } from './helpers.js';
+import { setup, serve, finish, TOKEN } from './helpers.js';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { saveKeys, loadConfig } from '../src/config.js';
@@ -63,7 +63,7 @@ test('provider and model lists save both choices atomically; cancellation preser
   const { engine, p, providers } = await setup(t);
   await finish(engine, p.id, { mode: 'full' });
   providers.fetch = async () =>
-    Response.json({ data: [{ id: 'claude-sonnet-5' }, { id: 'claude-opus-5' }] });
+    Response.json({ data: [{ id: 'claude-sonnet-5-5' }, { id: 'claude-opus-5-5' }] });
   const before = engine.get(p.id);
   const ui = render(React.createElement(App, { engine, projectId: p.id }));
   t.after(() => ui.unmount());
@@ -72,8 +72,8 @@ test('provider and model lists save both choices atomically; cancellation preser
   await press(ui, '\u001b[B');
   await press(ui, '\r');
   assert.match(ui.lastFrame(), /Fast model · 2\/3/);
-  assert.match(ui.lastFrame(), /claude-sonnet-5/);
-  assert.match(ui.lastFrame(), /claude-opus-5/);
+  assert.match(ui.lastFrame(), /claude-sonnet-5-5/);
+  assert.match(ui.lastFrame(), /claude-opus-5-5/);
   assert.deepEqual(engine.get(p.id), before);
   await press(ui, '\u001b');
   assert.deepEqual(engine.get(p.id), before);
@@ -87,8 +87,8 @@ test('provider and model lists save both choices atomically; cancellation preser
   await press(ui, '\r');
   const after = engine.get(p.id);
   assert.equal(after.config.provider, 'anthropic');
-  assert.equal(after.config.fastModel, 'claude-opus-5');
-  assert.equal(after.config.deepModel, 'claude-sonnet-5');
+  assert.equal(after.config.fastModel, 'claude-opus-5-5');
+  assert.equal(after.config.deepModel, 'claude-sonnet-5-5');
   assert.equal(after.artifacts.report, undefined);
   assert.equal(after.runs.length, before.runs.length);
 });
@@ -97,7 +97,7 @@ test('selecting the current provider and models again preserves the report', asy
   const { engine, p, providers } = await setup(t);
   await finish(engine, p.id, { mode: 'full' });
   providers.fetch = async () =>
-    Response.json({ data: [{ id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }] });
+    Response.json({ data: [{ id: 'gpt-6.2-sol' }, { id: 'gpt-6.2-astra' }] });
   const before = engine.get(p.id).artifacts;
   const ui = render(React.createElement(App, { engine, projectId: p.id }));
   t.after(() => ui.unmount());
@@ -173,7 +173,7 @@ test('TUI runs the engine, observes a review gate, records approval and starts a
 test('API edits update the same in-process TUI, and TUI edits reach API readers', async (t) => {
   const { engine, p } = await setup(t);
   const { url } = await serve(t, engine);
-  const client = new ApiClient(url);
+  const client = new ApiClient(url, { token: TOKEN });
   const ui = render(
     React.createElement(App, {
       engine,
@@ -254,7 +254,7 @@ test('TUI shows waiting progress and elapsed time before provider output, then s
     () => ui.lastFrame(),
   );
   assert.match(ui.lastFrame(), /Phase 2\/6: Ingest & classify/);
-  assert.match(ui.lastFrame(), /gpt-5.6-terra/);
+  assert.match(ui.lastFrame(), /gpt-6.2-sol/);
   assert.match(ui.lastFrame(), /1\/6 phases ready/);
   for (const line of LOGO.split('\n')) assert.ok(ui.lastFrame().includes(line));
   await waitFor(

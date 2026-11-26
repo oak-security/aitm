@@ -63,6 +63,44 @@ export function Form({ title, fields, onSubmit, onCancel, disabled = false }) {
   );
 }
 
+const providerName = (provider) => (provider === 'openai' ? 'OpenAI' : 'Anthropic');
+export const providerOptions = (engine) =>
+  Object.entries(engine.providers.status()).map(([value, status]) => ({
+    value,
+    label: `${providerName(value)} · ${status.configured ? 'key configured' : 'key missing'} · ${status.keySource}`,
+  }));
+export const keyFields = (engine, provider) => [
+  {
+    key: 'key',
+    label: 'API key',
+    secret: true,
+    optional: true,
+    hint: 'Paste a new key. Enter keeps the existing key; Esc cancels.',
+  },
+  ...(provider === 'anthropic'
+    ? [
+        {
+          key: 'workspace',
+          label: 'Workspace ID',
+          optional: true,
+          value: engine.providers.anthropicWorkspaceId,
+          hint: 'Optional wrkspc_ ID for multi-workspace keys. Empty clears it.',
+        },
+      ]
+    : []),
+];
+export function saveKey(engine, provider, values) {
+  const patch = {
+    ...(values.key.trim() ? { [provider]: values.key } : {}),
+    ...(values.workspace !== undefined && values.workspace !== engine.providers.anthropicWorkspaceId
+      ? { anthropicWorkspaceId: values.workspace }
+      : {}),
+  };
+  if (!Object.keys(patch).length) return 'No credentials changed.';
+  engine.providers.configure(patch);
+  return `${providerName(provider)} credentials ${engine.providers.saveCredentials ? 'saved privately' : 'updated for this session'} and active now.`;
+}
+
 export function artifactText(phase, project) {
   if (phase === 'scope')
     return [
@@ -113,6 +151,7 @@ export function App({
   engine,
   projectId,
   apiUrl,
+  webUrl,
   initialNotice = 'Ready. f Run full pipeline · ? Help.',
   editor = editJSON,
   exportDir = process.cwd(),
@@ -192,15 +231,10 @@ export function App({
   const choose = (title, options, onSelect, extra = {}) => {
     if (mounted.current) setForm({ title, options, onSelect, ...extra });
   };
-  const providerOptions = () =>
-    Object.entries(engine.providers.status()).map(([value, status]) => ({
-      value,
-      label: `${value === 'openai' ? 'OpenAI' : 'Anthropic'} · ${status.configured ? 'key configured' : 'key missing'} · ${status.keySource}`,
-    }));
   const configureProvider = () =>
     choose(
       'Provider & models · 1/3',
-      providerOptions(),
+      providerOptions(engine),
       (provider) => {
         act(async () => {
           const controller = new AbortController();
@@ -252,44 +286,12 @@ export function App({
       },
       { value: project.config.provider },
     );
-  const configureKey = (provider) => {
-    const name = provider === 'openai' ? 'OpenAI' : 'Anthropic';
+  const configureKey = (provider) =>
     show(
-      `${name} API key`,
-      [
-        {
-          key: 'key',
-          label: 'API key',
-          secret: true,
-          optional: true,
-          hint: 'Paste a new key. Enter keeps the existing key; Esc cancels.',
-        },
-        ...(provider === 'anthropic'
-          ? [
-              {
-                key: 'workspace',
-                label: 'Workspace ID',
-                optional: true,
-                value: engine.providers.anthropicWorkspaceId,
-                hint: 'Optional wrkspc_ ID for multi-workspace keys. Empty clears it.',
-              },
-            ]
-          : []),
-      ],
-      async (values) => {
-        const patch = {
-          ...(values.key.trim() ? { [provider]: values.key } : {}),
-          ...(values.workspace !== undefined &&
-          values.workspace !== engine.providers.anthropicWorkspaceId
-            ? { anthropicWorkspaceId: values.workspace }
-            : {}),
-        };
-        if (!Object.keys(patch).length) return 'No credentials changed.';
-        engine.providers.configure(patch);
-        return `${name} credentials ${engine.providers.saveCredentials ? 'saved privately' : 'updated for this session'} and active now. V verifies the connection.`;
-      },
+      `${providerName(provider)} API key`,
+      keyFields(engine, provider),
+      async (values) => `${saveKey(engine, provider, values)} V verifies the connection.`,
     );
-  };
   const settings = () =>
     choose(
       'Settings',
@@ -300,7 +302,7 @@ export function App({
       ],
       (value) => {
         if (value === 'keys')
-          choose('API keys · choose provider', providerOptions(), configureKey, {
+          choose('API keys · choose provider', providerOptions(engine), configureKey, {
             value: project.config.provider,
             hint: engine.providers.keyFile
               ? `Saved privately: ${engine.providers.keyFile}`
@@ -517,7 +519,7 @@ export function App({
           ].join('\n')
         : 'No runs yet.'
       : detail === 'help'
-        ? `Saved assessments: ${engine.store.directory}\nMarkdown is assembled from the saved assessment.\nExports go to the path selected with x.\n\n` +
+        ? `Saved assessments: ${engine.store.directory}\nMarkdown is assembled from the saved assessment.\nExports go to the path selected with x.\n${webUrl ? `Browser workbench (private link, do not share): ${webUrl}\n` : ''}\n` +
           'o Open/manage projects\nn New project\ni Add sources (URLs, documents, ZIP repositories)\nb Manage source snapshots\nr Run/resume with human review gates\nf Run full pipeline: top 3 STRIDE attack trees, no review stops\nF Restart full pipeline, clearing generated analysis\ng Regenerate selected phase\na Approve selected artifact\ne Edit artifact or scope/settings in your editor\nu Refresh source snapshot\ns Settings: add or replace API keys\np Pick provider, fast model and deep model from lists\nv View the Markdown report (no export)\nV Verify provider connection\nc Cancel active run\nx Export Markdown, PDF or JSON to a chosen file\nl Toggle run log and errors\nj/k or Page Down/Up: scroll\nReport: [ / ] previous/next section; Home/End first/last page\nEsc Return to artifact\nq Save and quit (unfinished step is cancelled)\n\nSource content goes to the selected provider when you run.\nDraft output needs expert review.\nSettings: select Scope then e to edit optional phases,\nscope and effort. Use p for model lists.\nPhase markers: + approved, * draft, - pending.'
         : !viewingReport && project && phase
           ? artifactText(phase.id, project)

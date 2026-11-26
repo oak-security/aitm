@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { AppError, insist, parse } from '../engine/errors.js';
 import {
@@ -18,39 +19,65 @@ import {
 import { markdownReport, pdfReport } from '../engine/report.js';
 import { openAssessment } from '../assessments.js';
 import { sourceInput } from '../source-input.js';
-import { serveWeb } from './web.js';
+import { serveWeb, PAGE_HEADERS } from './web.js';
+import { VERSION } from '../version.js';
+import { newToken, TOKEN_PATTERN } from '../token.js';
 
 const MAX_BODY = 16 * 1024 * 1024;
+const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/;
 const json = (res, status, body) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 };
+const digest = (value) => createHash('sha256').update(String(value)).digest();
+const same = (a, b) => timingSafeEqual(digest(a), digest(b));
+const SIGN_IN = `<!doctype html><html lang="en"><meta charset="utf-8"><title>AiTM · access link needed</title>
+<body><h1>AiTM needs its access link</h1>
+<p>This local workbench accepts only requests that carry its private access token.</p>
+<p>Open the complete URL that AiTM printed in the terminal where it runs. It ends with <code>?token=…</code>.
+In the terminal interface, press <code>?</code> to show it again.</p></body></html>`;
 
-export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = {}) {
+// Every request needs the access token, except the public routes below. Without it,
+// any process or user on this host could read local files through source intake.
+export async function startServer(
+  engine,
+  { port = 8790, host = '127.0.0.1', token = newToken(), allowedHosts = [] } = {},
+) {
   insist(
     ['127.0.0.1', '::1', 'localhost'].includes(host),
     'AiTM is a single-user local server. Bind to loopback only.',
   );
+  insist(TOKEN_PATTERN.test(token), 'The API access token is invalid.');
+  insist(
+    Array.isArray(allowedHosts) && allowedHosts.every((h) => LOOPBACK_HOST.test(h)),
+    'An allowed host must be a loopback name with a port, for example 127.0.0.1:9000.',
+  );
   const streams = new Set();
   const shutdown = new AbortController();
   const routes = [];
-  const route = (method, path, summary, body, handler) =>
+  const route = (method, path, summary, body, handler, { open = false } = {}) =>
     routes.push({
       method,
       path,
       summary,
       body,
       handler,
+      open,
       names: [...path.matchAll(/:([\w]+)/g)].map((m) => m[1]),
       pattern: new RegExp(`^${path.replace(/:[\w]+/g, '([^/]+)')}$`),
     });
-  route('GET', '/v1/health', 'Server identity and health', null, () => ({
-    service: 'aitm',
-    version: '2.0.0',
-    apiVersion: 1,
+  route(
+    'GET',
+    '/v1/health',
+    'Server identity and health (no access token needed)',
+    null,
+    () => ({ service: 'aitm', version: VERSION, apiVersion: 1 }),
+    { open: true },
+  );
+  route('GET', '/v1/instance', 'Process and storage details of this instance', null, () => ({
+    version: VERSION,
     pid: process.pid,
     dataDir: engine.store.directory,
-    cwd: process.cwd(),
     keyFile: engine.providers.keyFile,
   }));
   route('GET', '/v1/meta', 'TRACE phase registry and artifact schemas', null, () => ({
@@ -347,12 +374,14 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     null,
     () => ({
       openapi: '3.1.0',
-      info: { title: 'AiTM engine API', version: '2.0.0' },
+      info: { title: 'AiTM engine API', version: VERSION },
+      security: [{ accessToken: [] }],
       paths: routes.reduce((paths, r) => {
         const p = r.path.replace(/:([\w]+)/g, '{$1}');
         paths[p] ||= {};
         paths[p][r.method.toLowerCase()] = {
           summary: r.summary,
+          ...(r.open ? { security: [] } : {}),
           parameters: r.names.map((name) => ({
             name,
             in: 'path',
@@ -372,6 +401,7 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
               description:
                 'Successful result; runs return 202 and project creation/import return 201.',
             },
+            401: { description: 'Missing or invalid access token' },
             422: { description: 'Validation error' },
             409: { description: 'Conflict or review gate' },
           },
@@ -379,6 +409,13 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
         return paths;
       }, {}),
       components: {
+        securitySchemes: {
+          accessToken: {
+            type: 'http',
+            scheme: 'bearer',
+            description: 'The private token that `aitm token` prints.',
+          },
+        },
         schemas: Object.fromEntries(Object.entries(Schemas).map(([k, v]) => [k, jsonSchema(v)])),
       },
     }),
@@ -421,6 +458,7 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
         `127.0.0.1:${actualPort}`,
         `localhost:${actualPort}`,
         `[::1]:${actualPort}`,
+        ...allowedHosts,
       ]);
       insist(hosts.has(req.headers.host), 'Invalid Host header.', 403, 'forbidden');
       if (req.headers.origin)
@@ -438,8 +476,41 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
           'forbidden',
         );
       const url = new URL(req.url, `http://${req.headers.host}`);
+      const cookie = `aitm_token_${actualPort}`;
+      const presented =
+        /^Bearer (\S+)$/.exec(req.headers.authorization || '')?.[1] ||
+        (req.headers.cookie || '')
+          .split(';')
+          .map((part) => part.trim().split('='))
+          .find(([name]) => name === cookie)?.[1] ||
+        '';
+      const page = url.pathname === '/' && ['GET', 'HEAD'].includes(req.method);
+      // The launch URL carries the token once; the browser keeps it in a cookie.
+      if (page && url.searchParams.has('token') && same(url.searchParams.get('token'), token)) {
+        res.writeHead(303, {
+          location: '/',
+          'referrer-policy': 'no-referrer',
+          'set-cookie': `${cookie}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`,
+        });
+        res.end();
+        return;
+      }
+      const authorized = same(presented, token);
+      if (page && !authorized) {
+        res.writeHead(401, PAGE_HEADERS);
+        res.end(req.method === 'HEAD' ? undefined : SIGN_IN);
+        return;
+      }
       if (await serveWeb(req, res, url.pathname)) return;
       const selected = routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
+      if (!selected?.open && !authorized) {
+        res.setHeader('www-authenticate', 'Bearer');
+        throw new AppError(
+          401,
+          'unauthorized',
+          'Missing or invalid access token. Send Authorization: Bearer <token>; aitm token prints it.',
+        );
+      }
       insist(selected, 'API route not found. See /v1/openapi.json.', 404, 'not_found');
       const matches = selected.pattern.exec(url.pathname);
       const params = Object.fromEntries(
@@ -502,8 +573,11 @@ export async function startServer(engine, { port = 8790, host = '127.0.0.1' } = 
     server.listen(port, host, resolve);
   });
   const address = server.address();
+  const url = `http://${host === '::1' ? '[::1]' : host}:${address.port}`;
   return {
-    url: `http://${host === '::1' ? '[::1]' : host}:${address.port}`,
+    url,
+    token,
+    webUrl: (hash = '') => `${url}/?token=${token}${hash}`,
     server,
     close: async () => {
       shutdown.abort();

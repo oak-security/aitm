@@ -23,8 +23,12 @@ test('one application shares its engine with the API, closes cleanly, and reopen
   const providers = new FakeProviders();
   const app = await startApplication({ dataDir, providers, port: 0 });
   t.after(() => app.close());
-  const client = new ApiClient(app.url);
-  assert.equal((await client.get('/v1/health')).pid, process.pid);
+  const client = new ApiClient(app.url, { token: app.token });
+  assert.equal((await client.get('/v1/instance')).pid, process.pid);
+  await assert.rejects(
+    new ApiClient(app.url, { token: 'wrong-token' }).get('/v1/instance'),
+    /access token/,
+  );
   const opened = await openAssessment(app.engine, sourceInput('.', source));
   assert.equal(opened.reused, false);
   assert.equal(opened.project.sources[0].locator, await realpath(source));

@@ -1,4 +1,4 @@
-import { jsonSchema, Schemas, DEFAULT_MODELS, ProviderId } from './schema.js';
+import { jsonSchema, Schemas, DEFAULT_MODELS, MODEL_CATALOG, ProviderId } from './schema.js';
 import { AppError, insist } from './errors.js';
 import { credentialPatch } from './credentials.js';
 
@@ -79,6 +79,11 @@ export async function* readSSE(body) {
   insist(!buffer.trim(), 'Provider stream ended in a partial event.', 502, 'provider_protocol');
 }
 
+// Safety classifiers on these models can decline security analysis. With this
+// opt-in, the API reruns a declined request on the model Anthropic recommends.
+const ANTHROPIC_FALLBACK = /^claude-(?:opus-5|sonnet-5-5|fable-5|mythos-5)(?:-|$)/;
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+
 export class Providers {
   constructor({
     keys = {},
@@ -153,7 +158,7 @@ export class Providers {
   }
   async models(provider, signal) {
     ProviderId.parse(provider);
-    const defaults = Object.values(DEFAULT_MODELS[provider]);
+    const defaults = MODEL_CATALOG[provider];
     const fallback = (notice) => ({
       source: 'defaults',
       models: defaults.map((id) => ({ id })),
@@ -218,7 +223,7 @@ export class Providers {
                   : defaults.includes(model.id);
               // The pipeline uses reasoning effort and strict Responses output. Exclude specialist endpoints.
               return (
-                /^(gpt-[5-9](?:[.-]|$)|o[34](?:-|$))/.test(model.id) &&
+                /^gpt-[5-9](?:[.-]|$)/.test(model.id) &&
                 !/(chat|audio|realtime|search|transcribe|tts|image|deep-research)/.test(model.id) &&
                 !/(?:^|-)(?:pro|codex)(?:-|$)/.test(model.id)
               );
@@ -263,6 +268,7 @@ export class Providers {
   }) {
     this.assertConfigured(provider);
     const openai = provider === 'openai';
+    let fallbacks = !openai && ANTHROPIC_FALLBACK.test(model);
     const body = openai
       ? {
           model,
@@ -293,29 +299,31 @@ export class Providers {
           },
         };
     let response;
-    try {
-      response = await this.fetch(
-        openai ? 'https://api.openai.com/v1/responses' : 'https://api.anthropic.com/v1/messages',
-        {
-          method: 'POST',
-          redirect: 'error',
-          signal,
-          headers: {
-            'content-type': 'application/json',
-            ...this.headers(provider),
+    for (;;) {
+      try {
+        response = await this.fetch(
+          openai ? 'https://api.openai.com/v1/responses' : 'https://api.anthropic.com/v1/messages',
+          {
+            method: 'POST',
+            redirect: 'error',
+            signal,
+            headers: {
+              'content-type': 'application/json',
+              ...this.headers(provider),
+              ...(fallbacks ? { 'anthropic-beta': FALLBACK_BETA } : {}),
+            },
+            body: JSON.stringify(fallbacks ? { ...body, fallbacks: 'default' } : body),
           },
-          body: JSON.stringify(body),
-        },
-      );
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      throw new AppError(
-        502,
-        'provider_network',
-        `${provider} connection failed; check your network and retry.`,
-      );
-    }
-    if (!response.ok) {
+        );
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        throw new AppError(
+          502,
+          'provider_network',
+          `${provider} connection failed; check your network and retry.`,
+        );
+      }
+      if (response.ok) break;
       // Recognize this actionable account-configuration error without reflecting
       // arbitrary provider bodies (which can contain source text or credentials).
       if (!openai && response.status === 400) {
@@ -326,6 +334,11 @@ export class Providers {
             'workspace_required',
             'Anthropic requires a workspace selection. Set ANTHROPIC_WORKSPACE_ID in your private configuration and restart the server.',
           );
+        // An account or platform without the fallback beta rejects the field. Send the plain request.
+        if (fallbacks) {
+          fallbacks = false;
+          continue;
+        }
       }
       if (!response.bodyUsed) await response.body?.cancel();
       const reason =
@@ -337,6 +350,7 @@ export class Providers {
       throw new AppError(502, 'provider_error', `${provider}: ${reason}. Model: ${model}.`);
     }
     let output = '',
+      served = model,
       completed = false,
       stopped = false,
       inputTokens = 0,
@@ -365,7 +379,21 @@ export class Providers {
           inputTokens = event.response.usage?.input_tokens || 0;
           outputTokens = event.response.usage?.output_tokens || 0;
         }
-        if (event.type === 'message_start') inputTokens = event.message?.usage?.input_tokens || 0;
+        if (event.type === 'message_start') {
+          inputTokens = event.message?.usage?.input_tokens || 0;
+          if (typeof event.message?.model === 'string') served = event.message.model;
+        }
+        if (event.type === 'content_block_start' && event.content_block?.type === 'fallback') {
+          // A switch after partial output cannot give one valid JSON document.
+          if (output)
+            throw new AppError(
+              502,
+              'provider_incomplete',
+              'Anthropic declined part-way and changed to its fallback model. Retry this phase.',
+            );
+          if (typeof event.content_block.to?.model === 'string')
+            served = event.content_block.to.model;
+        }
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta')
           output += event.delta.text;
         if (event.type === 'message_delta') {
@@ -411,7 +439,8 @@ export class Providers {
       return {
         data: JSON.parse(this.redact(output)),
         usage: { inputTokens, outputTokens },
-        model,
+        // The model that produced the result; it differs from the request after a fallback.
+        model: /^[\w.:-]{1,300}$/.test(served) ? served : model,
         provider,
       };
     } catch {

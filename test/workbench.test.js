@@ -119,3 +119,34 @@ test('TUI file import dialog marks several files and cancellation has no source 
   await waitFor(ui, 'Manage sources');
   assert.equal(engine.get(p.id).sources.length, 2);
 });
+
+test('Settings opens from the project chooser, saves a key without a project and starts there on first run', async (t) => {
+  const { engine, providers } = await setup(t);
+  const ui = render(React.createElement(Workbench, { engine }));
+  t.after(() => ui.unmount());
+  await waitFor(ui, 'Settings · API keys');
+  assert.match(ui.lastFrame(), /s Settings/);
+  await press(ui, 's');
+  await waitFor(ui, 'Test the configured providers');
+  assert.match(ui.lastFrame(), /OpenAI · key configured/);
+  await press(ui, '\x1b[B');
+  await press(ui, '\r');
+  await waitFor(ui, 'Anthropic API key');
+  await press(ui, 'replacement-private-key');
+  assert.ok(ui.frames.every((frame) => !frame.includes('replacement-private-key')));
+  await press(ui, '\r');
+  await press(ui, '\r');
+  await waitFor(ui, 'active now');
+  assert.equal(providers.keys.anthropic, 'replacement-private-key');
+  assert.match(ui.lastFrame(), /Settings · API keys/);
+  await press(ui, '\x1b');
+  await waitFor(ui, 'Open project');
+
+  providers.keys = {};
+  const first = render(React.createElement(Workbench, { engine }));
+  t.after(() => first.unmount());
+  await waitFor(first, 'No API key is configured');
+  assert.match(first.lastFrame(), /OpenAI · key missing/);
+  await press(first, '\x1b');
+  await waitFor(first, 'New project');
+});

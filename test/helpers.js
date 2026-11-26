@@ -217,11 +217,17 @@ export async function finish(engine, id, input = { mode: 'draft' }) {
   return engine.getRun(id, run.id);
 }
 
-export async function serve(t, engine) {
-  const server = await startServer(engine, { port: 0 });
+export const TOKEN = 'test-access-token-0123456789abcdefghijklmnop';
+export const bearer = { authorization: `Bearer ${TOKEN}` };
+// A client that holds the access token, as the CLI-launched browser and ApiClient do.
+export const authed = (url, init = {}) =>
+  fetch(url, { ...init, headers: { ...bearer, ...init.headers } });
+
+export async function serve(t, engine, options = {}) {
+  const server = await startServer(engine, { port: 0, token: TOKEN, ...options });
   t.after(() => server.close());
   const request = async (method, route, body) => {
-    const response = await fetch(server.url + route, {
+    const response = await authed(server.url + route, {
       method,
       ...(body === undefined
         ? {}
