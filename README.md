@@ -25,24 +25,42 @@ AiTM needs [Node.js](https://nodejs.org) 22.12 or later. Git is needed only to
 import repository URLs.
 
 ```sh
+npm install --global @oaksecurity/aitm
+aitm doctor
+```
+
+`aitm doctor` checks Node.js, Git, keys, storage and the port, and tells you what
+to correct. If a global install needs root on your system, add
+`--prefix "$HOME/.local"` to the command and put `~/.local/bin` on your `PATH`.
+
+To get a new version, run `npm install --global @oaksecurity/aitm@latest`. To run
+AiTM without an install, use `npx @oaksecurity/aitm`.
+
+### From a checkout
+
+```sh
 git clone https://github.com/oak-security/aitm.git
 cd aitm
 npm ci
 npm link
-aitm doctor
 ```
 
 `npm link` puts the `aitm` command on your `PATH` and points it at this checkout.
-`aitm doctor` checks Node.js, Git, keys, storage and the port, and tells you what
-to correct. To run without a link, use `npm start` in the checkout. If `npm link`
-needs root on your system, run `npm_config_prefix="$HOME/.local" npm link` and
-put `~/.local/bin` on your `PATH`.
+To run without a link, use `npm start` in the checkout. If `npm link` needs root
+on your system, run `npm_config_prefix="$HOME/.local" npm link`.
 
-To install a release tarball instead of a checkout:
+### From a release tarball
+
+Each [GitHub release](https://github.com/oak-security/aitm/releases) has the
+package tarball. It is the same file as the npm package.
 
 ```sh
-npm install --global ./oak-security-aitm-2.2.0.tgz
+npm install --global ./oaksecurity-aitm-2.3.0.tgz
 ```
+
+Versions up to 2.2.0 had the package name `@oak-security/aitm`. If you installed
+one of them, remove it first with `npm uninstall --global @oak-security/aitm`.
+The two packages supply the same `aitm` command.
 
 ## First run
 
@@ -157,7 +175,7 @@ Then replace `8790` with `9000` in the printed URL.
 ## Use the engine in your code
 
 ```js
-import { Engine, Providers, startServer } from '@oak-security/aitm';
+import { Engine, Providers, startServer } from '@oaksecurity/aitm';
 
 const engine = await Engine.open({
   dataDir: '/private/path/aitm',
@@ -173,7 +191,31 @@ console.log(api.webUrl());
 // On shutdown: await engine.close(); await api.close();
 ```
 
-HTTP clients can import `ApiClient` from `@oak-security/aitm/client`.
+HTTP clients can import `ApiClient` from `@oaksecurity/aitm/client`.
+
+## Releases
+
+Each version is published in two places with the same content:
+
+- npm: [`@oaksecurity/aitm`](https://www.npmjs.com/package/@oaksecurity/aitm).
+- GitHub: a [release](https://github.com/oak-security/aitm/releases) with the tag
+  `vX.Y.Z` and the tarball `oaksecurity-aitm-X.Y.Z.tgz`.
+
+The [changelog](CHANGELOG.md) lists the changes of each version. The npm
+organization is `oaksecurity`. The GitHub organization is `oak-security`.
+Versions up to 2.2.0 are not on npm.
+
+To make sure that the two files are the same, compare the SHA-256 digest that
+GitHub shows for the release asset with the digest of the npm file:
+
+```sh
+npm pack @oaksecurity/aitm@2.3.0
+shasum -a 256 oaksecurity-aitm-2.3.0.tgz
+```
+
+The repository refuses force pushes to `main` and changes to `v*` tags, so a
+published tag always points at the same commit. The release procedure is in
+[CONTRIBUTING.md](CONTRIBUTING.md#releases).
 
 ## License
 

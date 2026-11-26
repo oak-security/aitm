@@ -62,12 +62,12 @@ test('source paths preserve spaces, expand home, and resolve relative to the lau
 });
 
 test('package exposes the headless reusable engine without starting a server or TUI', async () => {
-  const { Engine, Providers, startServer, PHASES } = await import('@oak-security/aitm');
+  const { Engine, Providers, startServer, PHASES } = await import('@oaksecurity/aitm');
   assert.equal(typeof Engine.open, 'function');
   assert.equal(typeof Providers, 'function');
   assert.equal(typeof startServer, 'function');
   assert.equal(PHASES[0].id, 'scope');
-  const { ApiClient } = await import('@oak-security/aitm/client');
+  const { ApiClient } = await import('@oaksecurity/aitm/client');
   assert.equal(typeof ApiClient, 'function');
 });
 

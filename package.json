@@ -1,6 +1,6 @@
 {
-  "name": "@oak-security/aitm",
-  "version": "2.2.0",
+  "name": "@oaksecurity/aitm",
+  "version": "2.3.0",
   "description": "TRACE threat modelling engine with local API, terminal and web interfaces.",
   "type": "module",
   "exports": {
@@ -8,6 +8,10 @@
     "./client": "./src/client.js"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oak-security/aitm.git"
+  },
   "bin": {
     "aitm": "src/cli.js"
   },
@@ -26,6 +30,9 @@
   ],
   "engines": {
     "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "start": "node src/cli.js",

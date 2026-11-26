@@ -44,11 +44,11 @@ Browsers use a cookie. `GET /?token=TOKEN` answers 303 to `/` and sets
 that URL for you. `GET /` without a valid cookie returns a 401 page with
 instructions and no data.
 
-`ApiClient` from `@oak-security/aitm/client` takes the token as an option. When
+`ApiClient` from `@oaksecurity/aitm/client` takes the token as an option. When
 you omit it, the client uses `AITM_TOKEN`, then the token file of the current user:
 
 ```js
-import { ApiClient } from '@oak-security/aitm/client';
+import { ApiClient } from '@oaksecurity/aitm/client';
 const client = new ApiClient('http://127.0.0.1:8790');
 const projects = await client.get('/v1/projects');
 ```

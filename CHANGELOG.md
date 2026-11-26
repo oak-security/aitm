@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.3.0 (2026-11-26)
+
+### Added
+
+- AiTM is on the npm registry. Install it with
+  `npm install --global @oaksecurity/aitm`. The README and the release procedure
+  in `CONTRIBUTING.md` describe the npm package and the release channels.
+
+### Changed
+
+- **Breaking for library users:** the package name is now `@oaksecurity/aitm`
+  (was `@oak-security/aitm`), to agree with the npm organization. Change imports
+  to `@oaksecurity/aitm` and `@oaksecurity/aitm/client`. A release tarball is
+  now `oaksecurity-aitm-<version>.tgz`. The `aitm` command and the GitHub
+  repository do not change.
+- `package.json` has a `repository` field and `publishConfig.access` is
+  `public`.
+
 ## 2.2.0 (2026-11-26)
 
 ### Changed

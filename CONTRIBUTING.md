@@ -85,8 +85,26 @@ See [SPEC.md](SPEC.md) for the full engine contract.
 
 ## Releases
 
-1. Update `version` in `package.json` and `package-lock.json`, and add a section
-   to [CHANGELOG.md](CHANGELOG.md). The CLI and API read the version from
-   `package.json`.
+A release goes to GitHub and to npm as `@oaksecurity/aitm`. You need write access
+to this repository, and an npm account with 2FA that has publish rights in the
+npm organization `oaksecurity`.
+
+1. Set the version with `npm version X.Y.Z --no-git-tag-version`. Add a section
+   to [CHANGELOG.md](CHANGELOG.md) and change the version in the examples of the
+   [README](README.md). The CLI and API read the version from `package.json`.
 2. Run all checks, then `npm run test:live` for the two providers.
-3. Tag `vX.Y.Z` and attach the output of `npm pack` to the release.
+3. Push the commit to `main` and wait until the `verify` workflow passes.
+4. Run `npm pack`. Tag the commit `vX.Y.Z`, push the tag, and create a GitHub
+   release with `oaksecurity-aitm-X.Y.Z.tgz` attached.
+5. Publish the same file: `npm publish ./oaksecurity-aitm-X.Y.Z.tgz`. npm asks
+   for your second factor. `publishConfig` in `package.json` sets public access.
+6. Make sure that `npm view @oaksecurity/aitm version` shows the new version.
+
+A release is permanent. npm does not accept the same version number a second
+time, and the repository rules refuse changes to a `v*` tag. Correct a bad
+release with a new version. If a version is dangerous to use, mark it with
+`npm deprecate`.
+
+Repository rules that apply to each contributor: `main` refuses force pushes and
+deletion, GitHub secret scanning and push protection are on, and workflow runs
+from forks wait for the approval of a maintainer.
