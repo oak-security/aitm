@@ -266,9 +266,9 @@ project, modify its config, and PATCH it with the fetched revision. When switchi
 provider, select that provider's default models from `/v1/providers` or your own
 model IDs. Changing config invalidates generated analysis.
 
-Review phases use `scope`, `model`, `stride`, `trees`, `coordination`, `report`.
-The `ingest` artifact is not a separate approval gate. Scope approval requires
-nonempty scope and evidence. Reviewer identity is optional (omitted/empty names
+Review phases use `model`, `stride`, `trees`, `coordination`, `report`. The `scope`
+and `ingest` artifacts have no review gate: an approval request for them returns
+HTTP 409 with code `no_review_gate`. Reviewer identity is optional (omitted/empty names
 are accepted); approvals still record a timestamp. Upstream gates must be approved before a downstream
 approval. Editing generated JSON resets that artifact's review and deletes later
 artifacts. A report remains marked draft until every enabled gate is approved.

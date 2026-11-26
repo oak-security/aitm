@@ -272,12 +272,13 @@ export class Engine {
     const input = parse(Review, raw),
       p = this.get(id);
     this.revision(p, input.revision);
+    insist(
+      PHASES.find((x) => x.id === phase).gate,
+      'This step has no review gate. The next gate is the TRACE model.',
+      409,
+      'no_review_gate',
+    );
     insist(p.artifacts[phase], 'No artifact exists for this phase.', 409);
-    if (phase === 'scope')
-      insist(
-        p.sources.length && p.scope.trim(),
-        'Add source evidence and define the assessment scope before approving.',
-      );
     for (const prior of enabledPhases(p)) {
       if (prior.id === phase) break;
       insist(
@@ -378,7 +379,7 @@ export class Engine {
     this.save(p);
     this.events.emit(runId, event);
   }
-  status(id, runId, status, phase = null, error = null) {
+  status(id, runId, status, phase = null, error = null, message = null) {
     const p = this.get(id),
       run = p.runs.find((r) => r.id === runId);
     run.status = status;
@@ -390,7 +391,7 @@ export class Engine {
     run.error = error;
     if (terminal.has(status)) run.finishedAt = now();
     this.save(p);
-    this.emit(id, runId, status, phase, error || status.replaceAll('_', ' '));
+    this.emit(id, runId, status, phase, error || message || status.replaceAll('_', ' '));
   }
   async execute(id, runId, input, signal) {
     try {
@@ -621,11 +622,28 @@ export class Engine {
         } else this.emit(id, runId, 'reused', phase.id, `Using saved ${phase.title}.`);
         p = this.get(id);
         if (input.mode === 'review' && phase.gate && p.artifacts[phase.id].status !== 'approved') {
-          this.status(id, runId, 'awaiting_review', phase.id);
+          this.status(
+            id,
+            runId,
+            'awaiting_review',
+            phase.id,
+            null,
+            `${phase.title} is ready. Review and approve it to continue.`,
+          );
           return;
         }
       }
-      this.status(id, runId, 'completed');
+      // A single-step run completes without a report; do not announce one.
+      this.status(
+        id,
+        runId,
+        'completed',
+        null,
+        null,
+        input.phase
+          ? `${PHASES.find((x) => x.id === input.phase).title} is complete.`
+          : 'Pipeline complete. The report is ready.',
+      );
     } catch (error) {
       if (signal.aborted) this.status(id, runId, 'cancelled');
       else

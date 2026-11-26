@@ -147,6 +147,11 @@ test(
     assert.equal(engine.get(id).runs.length, 1);
     assert.equal(engine.get(id).runs[0].mode, 'full');
     assert.equal(engine.get(id).artifacts.trees.data.trees.length, 3);
+    assert.match(
+      await page.locator('#toast').textContent(),
+      /Pipeline complete\. The report is ready\./,
+    );
+    await visit(page, url, id, 'model', 'Construct TRACE Model');
     await page.getByRole('button', { name: 'Approve review', exact: true }).first().click();
     assert.equal(await page.locator('dialog input').count(), 0);
     await page
@@ -154,8 +159,8 @@ test(
       .getByRole('button', { name: 'Approve review', exact: true })
       .click();
     await closed(page);
-    assert.equal(engine.get(id).artifacts.scope.status, 'approved');
-    assert.equal(engine.get(id).artifacts.scope.review.reviewer, '');
+    assert.equal(engine.get(id).artifacts.model.status, 'approved');
+    assert.equal(engine.get(id).artifacts.model.review.reviewer, '');
     await page.setViewportSize({ width: 390, height: 844 });
     const button = page.locator('#topbar [data-action="run-full"]');
     const box = await button.boundingBox();
@@ -416,15 +421,20 @@ test(
   async (t) => {
     const { page, url, engine } = await setup(t);
     const id = await open(page, url);
-    await page.getByRole('button', { name: 'Run with review gates' }).click();
-    await status(page, 'Awaiting review');
-    assert.equal(engine.get(id).runs.at(-1).phase, 'scope');
+    // Scope and source inventory need no approval: the first gate is the TRACE model.
     await visit(page, url, id, 'scope', 'Sources & Scope');
-    await approve(page);
+    assert.equal(
+      await page.getByRole('button', { name: 'Approve review', exact: true }).count(),
+      0,
+    );
     await visit(page, url, id, 'overview', 'Vault architecture.md');
     await page.getByRole('button', { name: 'Run with review gates' }).click();
     await status(page, 'Awaiting review');
     assert.equal(engine.get(id).runs.at(-1).phase, 'model');
+    assert.match(
+      await page.locator('#toast').textContent(),
+      /Construct TRACE model is ready\. Review and approve it to continue\./,
+    );
     await visit(page, url, id, 'stride', 'STRIDE Identification & Ranking');
     await page.getByRole('button', { name: 'Generate step' }).click();
     await page.waitForFunction(() =>

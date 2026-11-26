@@ -79,15 +79,15 @@ Single-phase reruns of these assessments require a complete pipeline run first.
 
 ## TRACE artifacts and execution
 
-| Phase          | Artifact                                                                                             | Gate             | Optionality                              |
-| -------------- | ---------------------------------------------------------------------------------------------------- | ---------------- | ---------------------------------------- |
-| 0 scope        | Assessment boundary and source inventory                                                             | Human approval   | Required                                 |
-| 1 ingest       | Provisional inventory/scope summary and domain/pillar classification                                 | No separate gate | Required                                 |
-| 2 model        | Threat actors, roles, protected assets, critical invariants, components, typed edges and questions   | Human approval   | Required                                 |
-| 3 stride       | Ranked threats, six STRIDE categories, controls, confidence, coverage rationale                      | Human approval   | Required                                 |
-| 4 trees        | Top-threat attack trees, AND/OR branches, assumptions, prerequisites, leaf mitigations and omissions | Human approval   | On by default                            |
-| 5 coordination | Actor combinations, thresholds, incentives, shared dependencies, consequences and mitigations        | Human approval   | Auto from profile/model; on/off override |
-| 6 report       | Executive summary, linked mitigation roadmap, residual risks, questions and next steps               | Human approval   | Required                                 |
+| Phase          | Artifact                                                                                             | Gate           | Optionality                              |
+| -------------- | ---------------------------------------------------------------------------------------------------- | -------------- | ---------------------------------------- |
+| 0 scope        | Assessment boundary and source inventory                                                             | No gate        | Required                                 |
+| 1 ingest       | Provisional inventory/scope summary and domain/pillar classification                                 | No gate        | Required                                 |
+| 2 model        | Threat actors, roles, protected assets, critical invariants, components, typed edges and questions   | Human approval | Required                                 |
+| 3 stride       | Ranked threats, six STRIDE categories, controls, confidence, coverage rationale                      | Human approval | Required                                 |
+| 4 trees        | Top-threat attack trees, AND/OR branches, assumptions, prerequisites, leaf mitigations and omissions | Human approval | On by default                            |
+| 5 coordination | Actor combinations, thresholds, incentives, shared dependencies, consequences and mitigations        | Human approval | Auto from profile/model; on/off override |
+| 6 report       | Executive summary, linked mitigation roadmap, residual risks, questions and next steps               | Human approval | Required                                 |
 
 Each phase produces schema-validated data. TRACE objects require exact evidence
 quotes/line references or explicit inferred assumptions. Before validation,
@@ -113,8 +113,12 @@ records corrected mappings, and flags unaddressed objects as coverage gaps for
 human review. This prevents a separate AI-generated index from claiming unsupported
 coverage. Human-edited and imported artifacts still undergo full consistency validation.
 
-Review mode pauses at every enabled gate. Human approval records time, optional reviewer and
-notes. It requires upstream gates to be approved. Draft mode runs through gates while
+Review mode pauses at every enabled gate. The first gate is the TRACE model: the
+scope and the ingest classification are inputs that the user wrote or can read in
+the model, and they need no approval. Human approval records time, optional reviewer and
+notes. It requires upstream gates to be approved. The final event of a run says what
+the run did: a single-step run names the step, and only a run through all phases
+announces the report. Draft mode runs through gates while
 leaving generated artifacts unapproved. Full mode also bypasses review pauses,
 enables trees with a limit of three and automatic coordination when it was off.
 It reuses existing model/STRIDE analysis and regenerates incompatible trees and

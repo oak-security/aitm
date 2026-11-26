@@ -23,7 +23,7 @@ const grounded = {
 const item = object({ id, name: short, description: text, ...grounded });
 
 export const PHASES = Object.freeze([
-  { id: 'scope', title: 'Scope & source inventory', required: true, gate: true },
+  { id: 'scope', title: 'Scope & source inventory', required: true, gate: false },
   { id: 'ingest', title: 'Ingest & classify', required: true, gate: false },
   { id: 'model', title: 'Construct TRACE model', required: true, gate: true },
   { id: 'stride', title: 'STRIDE & ranking', required: true, gate: true },

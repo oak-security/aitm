@@ -157,7 +157,7 @@ function connectRun() {
         stream?.close();
         stream = null;
         streamId = null;
-        toast(type === 'completed' ? 'Pipeline complete. Your report is ready.' : human(type));
+        toast(['completed', 'awaiting_review'].includes(type) ? state.event.message : human(type));
         queueRefresh();
       } else if (['artifact', 'source_refresh', 'running'].includes(type)) queueRefresh();
     });

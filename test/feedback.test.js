@@ -41,20 +41,19 @@ test('later source batches keep earlier model objects without failing or retryin
 test('approval accepts no reviewer name and still enforces revision and review gates', async (t) => {
   const { engine, p } = await setup(t),
     { request } = await serve(t, engine);
-  const result = await request('POST', `/v1/projects/${p.id}/artifacts/scope/approve`, {
+  const scope = await request('POST', `/v1/projects/${p.id}/artifacts/scope/approve`, {
     revision: p.revision,
   });
-  assert.equal(result.status, 200);
-  assert.equal(engine.get(p.id).artifacts.scope.status, 'approved');
-  assert.ok(!engine.get(p.id).artifacts.scope.review.reviewer);
-  assert.equal(
-    (
-      await request('POST', `/v1/projects/${p.id}/artifacts/scope/approve`, {
-        revision: p.revision,
-      })
-    ).status,
-    409,
-  );
+  assert.equal(scope.status, 409);
+  assert.equal(scope.body.error.code, 'no_review_gate');
+  assert.equal((await finish(engine, p.id, { mode: 'review' })).phase, 'model');
+  const { revision } = engine.get(p.id);
+  const approve = () =>
+    request('POST', `/v1/projects/${p.id}/artifacts/model/approve`, { revision });
+  assert.equal((await approve()).status, 200);
+  assert.equal(engine.get(p.id).artifacts.model.status, 'approved');
+  assert.ok(!engine.get(p.id).artifacts.model.review.reviewer);
+  assert.equal((await approve()).status, 409, 'a stale revision is refused');
 });
 
 test('web exposes full pipeline outside Overview and preserves source batch progress during streaming', async (t) => {

@@ -155,10 +155,10 @@ test('TUI runs the engine, observes a review gate, records approval and starts a
     () => ui.lastFrame(),
   );
   await press(ui, 'a');
-  await press(ui, 'Sources checked');
+  await press(ui, 'Model checked');
   await press(ui, '\r');
   await waitFor(
-    () => engine.get(p.id).artifacts.scope.status === 'approved',
+    () => engine.get(p.id).artifacts.model.status === 'approved',
     () => ui.lastFrame(),
   );
   await press(ui, 'f');

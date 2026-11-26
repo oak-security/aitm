@@ -124,7 +124,8 @@ BDO Grotesk typography, and gold/magenta accents:
    links, filter ranked threats, and expand AND/OR attack paths. Common object and
    threat fields have form editors; **Edit draft** exposes the complete validated
    artifact as JSON. Changed upstream artifacts invalidate dependent analysis.
-4. **Approve review** records approval with optional notes; no name is required. The engine enforces the same
+4. **Approve review** records approval with optional notes; no name is required. The first
+   review gate is the TRACE model. Scope and source classification need no approval. The engine enforces the same
    sequential gates as the terminal/API. Full runs leave outputs as drafts.
 5. **Report** renders the complete Markdown with section links and a raw Markdown
    view. Downloads of Markdown, PDF and project JSON are explicit; PDF is never
@@ -243,7 +244,8 @@ Anthropic recommends, and the run log records the model that produced each resul
    and the final report. Results remain drafts and the run does not pause for review.
    Fewer than three threats produce one tree per threat.
 3. Use Up/Down to inspect each phase. For a run that pauses at human review gates,
-   press `r`; `a` approves with optional notes, then `r` continues. `e` opens
+   press `r`; `a` approves with optional notes, then `r` continues. The first
+   gate is the TRACE model; Scope and Ingest need no approval. `e` opens
    the selected artifact in `$VISUAL`, `$EDITOR`, or `vi`. On Scope it edits scope
    and settings.
 4. Completed assessments open on the menu. Press **`v`: View Markdown** to open

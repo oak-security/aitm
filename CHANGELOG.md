@@ -2,7 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- **Breaking for API clients:** the scope and source inventory step is no longer
+  a review gate. A review run now goes through ingestion and stops first at the
+  TRACE model. An approval request for `scope` or `ingest` returns HTTP 409 with
+  code `no_review_gate`. A report no longer needs a scope approval to show as
+  reviewed.
+
 ### Fixed
+
+- The final message of a run now says what the run did. A single-step run (for
+  example ingestion) showed "Pipeline complete. Your report is ready." in the
+  browser. It now names the step, and a pause names the step to review.
 
 - A new project now uses a provider that has a key. Before this change, each new
   project used OpenAI, and a run failed with `missing_key` when only an Anthropic

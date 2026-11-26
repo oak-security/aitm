@@ -407,6 +407,8 @@ export function App({
           await engine.syncSource(project.id, source.id);
         return 'Sources refreshed. Changed evidence invalidates dependent analysis.';
       }, 'Refreshing source snapshots');
+    if (input === 'a' && phase && !phase.gate)
+      return setNotice('This step needs no review. Press r to continue to the next review gate.');
     if (input === 'a' && phase)
       show(
         `Approve ${phase.title}`,

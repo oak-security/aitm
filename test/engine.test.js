@@ -112,10 +112,16 @@ test('complete TRACE draft persists every phase, evidence, usage and a truthful 
 
 test('review mode enforces every gate, resumes, and records explicit reviewers', async (t) => {
   const { engine, p, providers } = await setup(t);
-  for (const phase of ['scope', 'model', 'stride', 'trees', 'coordination', 'report']) {
+  // Scope and ingest have no gate: an approval there is refused.
+  assert.throws(
+    () => engine.approve(p.id, 'scope', { revision: p.revision }),
+    (error) => error.code === 'no_review_gate',
+  );
+  for (const phase of ['model', 'stride', 'trees', 'coordination', 'report']) {
     const run = await finish(engine, p.id, { mode: 'review' });
     assert.equal(run.status, 'awaiting_review', run.error);
     assert.equal(run.phase, phase);
+    assert.match(run.events.at(-1).message, /is ready\. Review and approve it to continue\./);
     const current = engine.get(p.id);
     engine.approve(p.id, phase, {
       revision: current.revision,
@@ -123,9 +129,19 @@ test('review mode enforces every gate, resumes, and records explicit reviewers',
       notes: `Verified ${phase}`,
     });
   }
-  assert.equal((await finish(engine, p.id, { mode: 'review' })).status, 'completed');
+  const last = await finish(engine, p.id, { mode: 'review' });
+  assert.equal(last.status, 'completed');
+  assert.equal(last.events.at(-1).message, 'Pipeline complete. The report is ready.');
   assert.equal(providers.calls.length, 6, 'approved phases are reused');
   assert.ok(markdownReport(engine.get(p.id)).includes('**Reviewed**'));
+});
+
+test('a single-step run names the step and does not announce a report', async (t) => {
+  const { engine, p } = await setup(t);
+  const run = await finish(engine, p.id, { mode: 'review', phase: 'ingest' });
+  assert.equal(run.status, 'completed');
+  assert.equal(run.events.at(-1).message, 'Ingest & classify is complete.');
+  assert.equal(engine.get(p.id).artifacts.report, undefined);
 });
 
 test('invalidating a source or model removes dependent artifacts and approvals', async (t) => {
@@ -373,8 +389,7 @@ test('citation recovery keeps valid references, exposes partial support and pres
     }
     return result;
   };
-  let current = engine.get(p.id);
-  engine.approve(p.id, 'scope', { revision: current.revision, reviewer: 'Test reviewer' });
+  let current;
   const run = await finish(engine, p.id, { mode: 'review' });
   assert.equal(run.status, 'awaiting_review');
   assert.equal(run.phase, 'model');
