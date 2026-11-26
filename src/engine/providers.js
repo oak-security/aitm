@@ -247,10 +247,18 @@ export class Providers {
       );
     }
   }
+  // The provider for a new project: the first one with a key, OpenAI when none has one.
+  preferred() {
+    return Object.keys(DEFAULT_MODELS).find((name) => this.keys[name]) || 'openai';
+  }
   assertConfigured(provider) {
+    const name = (id) => (id === 'openai' ? 'OpenAI' : 'Anthropic');
+    const other = Object.keys(DEFAULT_MODELS).find((id) => id !== provider && this.keys[id]);
     insist(
       this.keys[provider],
-      `Configure ${provider === 'openai' ? 'OpenAI' : 'Anthropic'} in s Settings → API keys, or run aitm configure, before starting a run.`,
+      other
+        ? `This project uses ${name(provider)}, which has no API key. ${name(other)} has a key: select ${name(other)} in the provider and model settings of the project and save, or add an ${name(provider)} key in Settings.`
+        : `No ${name(provider)} API key is configured. Add one in Settings, or run aitm configure, then start the run again.`,
       422,
       'missing_key',
     );

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A new project now uses a provider that has a key. Before this change, each new
+  project used OpenAI, and a run failed with `missing_key` when only an Anthropic
+  key was configured.
+- The `missing_key` message now names the provider that has a key and the
+  setting to change. It no longer refers to a terminal shortcut in the browser.
+- The browser Settings page no longer shows a model form that cannot be saved
+  when no assessment is open. With an assessment open, it shows a warning while
+  the selected provider is not saved.
+
 ## 2.1.0 (not released)
 
 ### Security

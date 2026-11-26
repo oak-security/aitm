@@ -201,17 +201,11 @@ export function settings(s) {
   const sameProvider = selected === config.provider;
   const fast = sameProvider ? config.fastModel : status.fastModel,
     deep = sameProvider ? config.deepModel : status.deepModel;
-  return `${title('CONFIGURATION', 'Settings & Models', 'Manage provider credentials and choose the models for this assessment.')}<div class="card">${select(
-    'settings-provider',
-    'AI provider',
-    [
-      { id: 'openai', name: 'OpenAI' },
-      { id: 'anthropic', name: 'Anthropic' },
-    ],
-    selected,
-  )}</div>
-    <form data-form="credentials" data-provider="${selected}" class="card"><div class="spread"><h2>${selected === 'openai' ? 'OpenAI' : 'Anthropic'} API key</h2>${pill(status.configured ? 'Key configured' : 'Key needed', status.configured ? 'gold' : '')}</div><p class="hint" data-key-source>Current source: ${esc(status.keySource)}. A saved replacement takes precedence over environment settings.</p>${field('apiKey', 'New API key', '', { type: 'password' })}${selected === 'anthropic' ? field('workspaceId', 'Workspace ID (optional; blank keeps current)') : ''}<div class="row"><button class="btn primary">Save key</button>${button('test-provider', 'Test connection', `data-provider="${selected}"`)}</div><p class="hint">${s.health.keyFile ? `Keys are stored privately in <code>${esc(s.health.keyFile)}</code> (mode 600).` : 'Keys are kept in this server session; persistent credential storage was not configured by its host.'} Existing keys are never shown.</p></form>
-    <form data-form="models" data-provider="${selected}" data-revision="${p?.revision || ''}" class="card"><div class="spread"><h2>Models</h2>${button('refresh-models', 'Refresh list', `data-provider="${selected}"`)}</div><p id="catalog-notice" class="hint">${esc(catalog?.notice || (catalog ? 'Compatible account models.' : 'Loading account models… Defaults are available.'))}</p><div class="grid-2">${select('fastModel', 'Fast model', modelOptions(fast), fast)}${select('deepModel', 'Deep model', modelOptions(deep), deep)}</div><p class="hint">Fast: classification, TRACE model, trees and report. Deep: STRIDE and coordination.</p>${select('effort', 'Reasoning effort', ['low', 'medium', 'high'], config.effort)}<h2>Optional phases</h2><div class="grid-2">${select(
+  const providerName = (id) => (id === 'openai' ? 'OpenAI' : 'Anthropic');
+  const noProject =
+    '<div class="card"><h2>Models</h2><p class="hint">Models are set for each assessment. A new assessment uses the provider that has a key (OpenAI first). Open an assessment to select other models.</p></div>';
+  const modelsForm = () =>
+    `<form data-form="models" data-provider="${selected}" data-revision="${p.revision}" class="card"><div class="spread"><h2>Models</h2>${button('refresh-models', 'Refresh list', `data-provider="${selected}"`)}</div>${sameProvider ? '' : `<p class="notice warn">Not saved. This assessment uses ${providerName(config.provider)} until you select <strong>Save assessment settings</strong>.</p>`}<p id="catalog-notice" class="hint">${esc(catalog?.notice || (catalog ? 'Compatible account models.' : 'Loading account models… Defaults are available.'))}</p><div class="grid-2">${select('fastModel', 'Fast model', modelOptions(fast), fast)}${select('deepModel', 'Deep model', modelOptions(deep), deep)}</div><p class="hint">Fast: classification, TRACE model, trees and report. Deep: STRIDE and coordination.</p>${select('effort', 'Reasoning effort', ['low', 'medium', 'high'], config.effort)}<h2>Optional phases</h2><div class="grid-2">${select(
       'trees',
       'Attack trees',
       [
@@ -233,7 +227,18 @@ export function settings(s) {
         { id: 'off', name: 'Disabled' },
       ],
       config.coordination,
-    )}</div><p class="hint">A full pipeline always includes attack trees for the top three threats. Saving changed model settings invalidates generated analysis; API key changes alone do not.</p><button class="btn primary" ${!p || activeRun(p) ? 'disabled' : ''}>Save assessment settings</button>${!p ? '<p class="hint">Open an assessment to save its model and phase choices.</p>' : ''}</form><div class="notice">AI analysis sends the accepted source text to the selected provider. Results remain drafts until you record a review.</div>`;
+    )}</div><p class="hint">A full pipeline always includes attack trees for the top three threats. Saving changed model settings invalidates generated analysis; API key changes alone do not.</p><button class="btn primary" ${activeRun(p) ? 'disabled' : ''}>Save assessment settings</button></form>`;
+  return `${title('CONFIGURATION', 'Settings & Models', 'Manage provider credentials and choose the models for this assessment.')}<div class="card">${select(
+    'settings-provider',
+    'AI provider',
+    [
+      { id: 'openai', name: 'OpenAI' },
+      { id: 'anthropic', name: 'Anthropic' },
+    ],
+    selected,
+  )}</div>
+    <form data-form="credentials" data-provider="${selected}" class="card"><div class="spread"><h2>${selected === 'openai' ? 'OpenAI' : 'Anthropic'} API key</h2>${pill(status.configured ? 'Key configured' : 'Key needed', status.configured ? 'gold' : '')}</div><p class="hint" data-key-source>Current source: ${esc(status.keySource)}. A saved replacement takes precedence over environment settings.</p>${field('apiKey', 'New API key', '', { type: 'password' })}${selected === 'anthropic' ? field('workspaceId', 'Workspace ID (optional; blank keeps current)') : ''}<div class="row"><button class="btn primary">Save key</button>${button('test-provider', 'Test connection', `data-provider="${selected}"`)}</div><p class="hint">${s.health.keyFile ? `Keys are stored privately in <code>${esc(s.health.keyFile)}</code> (mode 600).` : 'Keys are kept in this server session; persistent credential storage was not configured by its host.'} Existing keys are never shown.</p></form>
+    ${p ? modelsForm() : noProject}<div class="notice">AI analysis sends the accepted source text to the selected provider. Results remain drafts until you record a review.</div>`;
 }
 export function log(s) {
   const runs = [...s.project.runs].reverse();

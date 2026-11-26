@@ -20,6 +20,36 @@ test('provider selection resolves model defaults from that provider', async (t) 
   assert.equal(changed.config.deepModel, 'gpt-6.2-astra');
 });
 
+test('a new project uses a provider that has a key, and a missing key names the remedy', async (t) => {
+  const { engine, providers, p } = await setup(t);
+  assert.equal(p.config.provider, 'openai');
+  assert.equal(engine.create({ name: 'Two keys' }).config.provider, 'openai');
+  providers.keys.openai = '';
+  const project = engine.create({ name: 'Anthropic key only' });
+  assert.equal(project.config.provider, 'anthropic');
+  assert.equal(project.config.fastModel, 'claude-sonnet-5-5');
+  assert.equal(project.config.deepModel, 'claude-opus-5-5');
+  // An explicit provider or model choice is kept.
+  const explicit = engine.create({ name: 'Explicit', config: { provider: 'openai' } });
+  assert.equal(explicit.config.provider, 'openai');
+  assert.equal(
+    engine.create({ name: 'Model only', config: { fastModel: 'gpt-6.1-terra' } }).config.provider,
+    'openai',
+  );
+  assert.throws(
+    () => engine.run(p.id, { mode: 'draft' }),
+    (error) =>
+      error.code === 'missing_key' &&
+      /uses OpenAI, which has no API key\. Anthropic has a key/.test(error.message),
+  );
+  providers.keys.anthropic = '';
+  assert.equal(engine.create({ name: 'No keys' }).config.provider, 'openai');
+  assert.throws(
+    () => engine.run(p.id, { mode: 'draft' }),
+    /No OpenAI API key is configured\. Add one in Settings, or run aitm configure/,
+  );
+});
+
 test('complete TRACE draft persists every phase, evidence, usage and a truthful report', async (t) => {
   const { engine, p, providers, dir } = await setup(t);
   const run = await finish(engine, p.id);

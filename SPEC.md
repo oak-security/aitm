@@ -157,6 +157,9 @@ Startup, source import and existing report exports work without a provider key;
 starting analysis without the selected provider's key fails before a run is created.
 When no provider key is configured, both interfaces start on Settings. Settings is
 reachable without an open project in both interfaces.
+A project created without a provider or model choice uses the first provider that
+has a key (OpenAI, then Anthropic), or OpenAI when none has one. The engine never
+changes the provider of a saved project.
 Model defaults and the offline catalog live in `src/engine/schema.js`. For Claude
 models that have safety classifiers, requests opt in to the server-side refusal
 fallback. A fallback after partial output fails the phase, because the two parts

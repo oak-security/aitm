@@ -172,6 +172,10 @@ Starting analysis requires a key for the project's selected provider;
 a missing key produces a configuration message before creating a run. With
 `--full`, that error ends the launch. Use `aitm configure` first, or configure
 credentials through Settings and then start the run.
+A new project uses the first provider that has a key (OpenAI, then Anthropic).
+Models belong to the project: if a project uses a provider that has no key, select
+the other provider with `p` in the terminal, or in **Settings & models** in the
+browser followed by **Save assessment settings**.
 
 In the TUI press **`s`** for Settings, in the project chooser or inside a project.
 Inside a project, choose **API keys**. Then select **OpenAI** or

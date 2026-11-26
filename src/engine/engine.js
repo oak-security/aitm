@@ -104,6 +104,10 @@ export class Engine {
   create(input) {
     insist(!this.closed, 'Engine is stopping.', 503);
     const data = parse(CreateProject, input);
+    // Without a provider or model choice, use a provider that has a key.
+    const given = input?.config ?? {};
+    if (!given.provider && !given.fastModel && !given.deepModel)
+      data.config.provider = this.providers.preferred();
     data.config = resolveConfig(data.config);
     const p = {
       schemaVersion: 2,

@@ -80,8 +80,9 @@ curl -s -H "$AUTH" http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs \
   -d '{"mode":"full"}'
 ```
 
-A successful run request returns HTTP 202 with a job ID. If the selected provider
-has no key, it returns HTTP 422 with code `missing_key` before creating a job.
+A successful run request returns HTTP 202 with a job ID. If the provider of the
+project has no key, it returns HTTP 422 with code `missing_key` before creating a
+job. The message names a provider that has a key, if there is one.
 
 `mode: "review"` is the default; it pauses at human review gates. `draft` bypasses gates without approving artifacts.
 `full` runs the complete pipeline without review pauses, enables trees with
@@ -258,7 +259,9 @@ and source metadata, not every source file's complete text.
 ## Configuration and reviews
 
 Project config has `provider`, `fastModel`, `deepModel`, `effort` (`low|medium|high`),
-`trees` (boolean), `coordination` (`auto|on|off`) and `treeLimit` (1–10). Fetch a
+`trees` (boolean), `coordination` (`auto|on|off`) and `treeLimit` (1–10). A project
+created without `provider` and without model IDs uses the first provider that has
+a key (`openai`, then `anthropic`), or `openai` when no key is configured. Fetch a
 project, modify its config, and PATCH it with the fetched revision. When switching
 provider, select that provider's default models from `/v1/providers` or your own
 model IDs. Changing config invalidates generated analysis.
