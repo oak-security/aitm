@@ -1,12 +1,6 @@
 # dependencies
 node_modules/
 
-# build output
-dist/
-
-# electron-builder scratch
-build/icon.iconset/
-
 # secrets / local env
 .env
 .env.*
@@ -22,7 +16,6 @@ Thumbs.db
 artifacts/
 coverage/
 *.tgz
-__pycache__/
 
 # Local Orca workspace tooling
 orca.yaml

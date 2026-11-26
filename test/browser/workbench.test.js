@@ -10,25 +10,32 @@ import { browserServer } from './server.js';
 import { zipFixture } from '../zip-fixture.js';
 
 const output = 'artifacts/qa/web';
+// AITM_BROWSER_CHANNEL=chrome runs the suite in an installed Google Chrome.
+const channel = process.env.AITM_BROWSER_CHANNEL;
 async function setup(t) {
   const server = await browserServer();
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  const page = await context.newPage();
+  let browser;
   const errors = [],
     remote = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('request', (r) => {
-    if (!r.url().startsWith(server.url)) remote.push(r.url());
-  });
+  // Registered before the launch: a missing browser must fail the test, not hang it.
   t.after(async () => {
-    await browser.close();
+    await browser?.close();
     await server.close();
     assert.deepEqual(errors, []);
     assert.deepEqual(remote, []);
   });
+  browser = await chromium.launch(channel ? { channel } : {});
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('request', (r) => {
+    if (!r.url().startsWith(server.url)) remote.push(r.url());
+  });
   await mkdir(output, { recursive: true });
-  return { ...server, page, context };
+  // Sign in as the CLI does: the launch URL sets the access cookie.
+  await page.goto(server.webUrl());
+  await page.getByRole('button', { name: 'New project', exact: true }).first().waitFor();
+  return { ...server, page, context, bearer: { authorization: `Bearer ${server.token}` } };
 }
 async function open(page, url) {
   await page.goto(url);
@@ -292,7 +299,7 @@ test(
   'browser runs the full v2 pipeline, inspects every artifact, reads and exports the report',
   { timeout: 60000 },
   async (t) => {
-    const { page, url, engine, dir, server } = await setup(t);
+    const { page, url, engine, dir, server, bearer } = await setup(t);
     const pdfRequests = [];
     server.on('request', (r) => {
       if (r.url.includes('format=pdf')) pdfRequests.push(r.url);
@@ -342,7 +349,9 @@ test(
       await page.locator('.report-paper').innerText(),
       /not authored, reviewed or endorsed by Oak Security/,
     );
-    const report = await (await fetch(`${url}/v1/projects/${id}/report`)).text();
+    const report = await (
+      await fetch(`${url}/v1/projects/${id}/report`, { headers: bearer })
+    ).text();
     await page.getByRole('button', { name: 'Markdown source', exact: true }).click();
     assert.equal(await page.locator('.raw-report').textContent(), report);
     await page.getByRole('button', { name: 'Read report', exact: true }).click();
@@ -475,7 +484,7 @@ test(
   'browser settings mask replacement keys, use provider model lists and preserve reports on no-op saves',
   { timeout: 60000 },
   async (t) => {
-    const { page, url, engine, providers } = await setup(t);
+    const { page, url, engine, providers, bearer } = await setup(t);
     const id = await open(page, url);
     await page.getByRole('button', { name: 'Run full pipeline', exact: true }).click();
     await status(page, 'Completed');
@@ -498,7 +507,7 @@ test(
       !(await page.locator('body').innerText()).includes('browser-replacement-private-key'),
     );
     assert.ok(
-      !(await (await fetch(`${url}/v1/providers`)).text()).includes(
+      !(await (await fetch(`${url}/v1/providers`, { headers: bearer })).text()).includes(
         'browser-replacement-private-key',
       ),
     );
@@ -640,5 +649,26 @@ test(
       document.querySelector('#toast').textContent.includes('Assessment settings saved'),
     );
     assert.equal(engine.get(id).config.fastModel, 'gpt-5-test');
+  },
+);
+
+test(
+  'a browser without the access link gets instructions; the launch URL signs in and leaves no token in the address',
+  { timeout: 30000 },
+  async (t) => {
+    const { context, url, webUrl, engine } = await setup(t);
+    const stranger = await (await context.browser().newContext()).newPage();
+    const denied = await stranger.goto(url);
+    assert.equal(denied.status(), 401);
+    await stranger.getByRole('heading', { name: 'AiTM needs its access link' }).waitFor();
+    assert.equal(
+      await stranger.evaluate(() => fetch('/v1/projects').then((response) => response.status)),
+      401,
+    );
+    const id = engine.create({ name: 'Linked project' }).id;
+    await stranger.goto(webUrl(`#/projects/${id}/overview`));
+    await stranger.getByRole('heading', { name: 'Linked project' }).first().waitFor();
+    assert.equal(stranger.url(), `${url}/#/projects/${id}/overview`);
+    assert.equal(await stranger.evaluate(() => document.cookie), '');
   },
 );

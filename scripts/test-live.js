@@ -18,7 +18,7 @@ async function main() {
     throw new Error('AITM_LIVE_PROVIDER must be openai or anthropic.');
   if (selected.some((p) => !config.keys[p]))
     throw new Error(
-      'Live test requires both provider keys (or select one with AITM_LIVE_PROVIDER). Run python3 scripts/configure-keys.py first.',
+      'Live test requires both provider keys (or select one with AITM_LIVE_PROVIDER). Run aitm configure first.',
     );
   const directory = process.env.AITM_LIVE_DIR
     ? path.resolve(process.env.AITM_LIVE_DIR)

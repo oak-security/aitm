@@ -33,9 +33,17 @@ export const PHASES = Object.freeze([
 ]);
 export const PhaseId = z.enum(PHASES.map((p) => p.id));
 export const ProviderId = z.enum(['openai', 'anthropic']);
+// The fast slot reads every source batch; the deep slot reasons about STRIDE and
+// coordination from the finished model. Verified against provider documentation
+// on 2026-11-26; the account model list replaces the catalog when a key is set.
 export const DEFAULT_MODELS = Object.freeze({
-  openai: { fastModel: 'gpt-5.6-terra', deepModel: 'gpt-5.6-sol' },
-  anthropic: { fastModel: 'claude-sonnet-5', deepModel: 'claude-opus-5' },
+  openai: { fastModel: 'gpt-6.2-sol', deepModel: 'gpt-6.2-astra' },
+  anthropic: { fastModel: 'claude-sonnet-5-5', deepModel: 'claude-opus-5-5' },
+});
+// Offered when the account model list is not available. Defaults come first.
+export const MODEL_CATALOG = Object.freeze({
+  openai: ['gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-terra', 'gpt-6-luna'],
+  anthropic: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-2', 'claude-haiku-5-5'],
 });
 export const Config = object({
   provider: ProviderId.default('openai'),

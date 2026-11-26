@@ -10,14 +10,14 @@ import { Engine } from '../src/engine/engine.js';
 test('provider selection resolves model defaults from that provider', async (t) => {
   const { engine } = await setup(t);
   const project = engine.create({ name: 'Anthropic defaults', config: { provider: 'anthropic' } });
-  assert.equal(project.config.fastModel, 'claude-sonnet-5');
-  assert.equal(project.config.deepModel, 'claude-opus-5');
+  assert.equal(project.config.fastModel, 'claude-sonnet-5-5');
+  assert.equal(project.config.deepModel, 'claude-opus-5-5');
   const changed = engine.update(project.id, {
     revision: project.revision,
     config: { provider: 'openai' },
   });
-  assert.equal(changed.config.fastModel, 'gpt-5.6-terra');
-  assert.equal(changed.config.deepModel, 'gpt-5.6-sol');
+  assert.equal(changed.config.fastModel, 'gpt-6.2-sol');
+  assert.equal(changed.config.deepModel, 'gpt-6.2-astra');
 });
 
 test('complete TRACE draft persists every phase, evidence, usage and a truthful report', async (t) => {

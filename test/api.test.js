@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { setup, serve } from './helpers.js';
+import { setup, serve, authed, TOKEN } from './helpers.js';
 import { ApiClient } from '../src/client.js';
 
 test('API exposes the same provider model catalog and credential status without exposing keys', async (t) => {
   const { engine, providers } = await setup(t);
   providers.fetch = async () =>
-    Response.json({ data: [{ id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }] });
+    Response.json({ data: [{ id: 'gpt-6.2-sol' }, { id: 'gpt-6.2-astra' }] });
   const { request } = await serve(t, engine);
   providers.configure({ openai: 'replacement-private-key' });
   const catalog = await request('GET', '/v1/providers/openai/models');
@@ -30,7 +30,7 @@ test('HTTP lifecycle, OpenAPI, replayable SSE, editing and report export', async
   assert.ok(contract.body.components.schemas.model);
   const started = await request('POST', `${base}/runs`, { mode: 'draft' });
   assert.equal(started.status, 202);
-  const client = new ApiClient(url),
+  const client = new ApiClient(url, { token: TOKEN }),
     events = [];
   for await (const event of client.events(p.id, started.body.id)) events.push(event);
   assert.equal(events.at(-1).type, 'completed');
@@ -39,10 +39,10 @@ test('HTTP lifecycle, OpenAPI, replayable SSE, editing and report export', async
   for await (const event of client.events(p.id, started.body.id, { after: events.at(-2).id }))
     replay.push(event);
   assert.deepEqual(replay, [events.at(-1)]);
-  const markdown = await fetch(`${url}${base}/report`);
+  const markdown = await authed(`${url}${base}/report`);
   assert.equal(markdown.status, 200);
   assert.ok((await markdown.text()).includes('Mitigation roadmap'));
-  const pdf = await fetch(`${url}${base}/report?format=pdf`);
+  const pdf = await authed(`${url}${base}/report?format=pdf`);
   assert.equal(pdf.headers.get('content-type'), 'application/pdf');
   assert.equal(
     Buffer.from(await pdf.arrayBuffer())
@@ -69,11 +69,12 @@ test('HTTP validation, browser boundaries and credential redaction', async (t) =
   assert.equal((await request('POST', '/v1/projects', { name: '' })).status, 422);
   assert.equal((await request('GET', '/v1/projects/not-an-id')).status, 422);
   assert.equal(
-    (await fetch(`${url}/v1/projects`, { headers: { origin: 'https://attacker.example' } })).status,
+    (await authed(`${url}/v1/projects`, { headers: { origin: 'https://attacker.example' } }))
+      .status,
     403,
   );
   assert.equal(
-    (await fetch(`${url}/v1/projects`, { headers: { 'sec-fetch-site': 'cross-site' } })).status,
+    (await authed(`${url}/v1/projects`, { headers: { 'sec-fetch-site': 'cross-site' } })).status,
     403,
   );
   const wrongHost = await new Promise((resolve, reject) => {
@@ -85,10 +86,10 @@ test('HTTP validation, browser boundaries and credential redaction', async (t) =
       .on('error', reject);
   });
   assert.equal(wrongHost, 403);
-  assert.equal((await fetch(`${url}/v1/projects`, { method: 'POST', body: '{}' })).status, 415);
+  assert.equal((await authed(`${url}/v1/projects`, { method: 'POST', body: '{}' })).status, 415);
   assert.equal(
     (
-      await fetch(`${url}/v1/projects`, {
+      await authed(`${url}/v1/projects`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{',
@@ -113,7 +114,7 @@ test('disconnecting a progress client does not cancel the server job', async (t)
   const { url, request } = await serve(t, engine);
   const started = await request('POST', `/v1/projects/${p.id}/runs`, { mode: 'draft' });
   const controller = new AbortController();
-  const client = new ApiClient(url);
+  const client = new ApiClient(url, { token: TOKEN });
   for await (const event of client.events(p.id, started.body.id, { signal: controller.signal })) {
     controller.abort();
     break;

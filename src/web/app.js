@@ -36,6 +36,10 @@ async function api(path, method = 'GET', body) {
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401)
+      throw new Error(
+        'This browser session has no valid access token. Open the complete URL that AiTM printed in its terminal.',
+      );
     throw new Error(data.error?.message || `Request failed (${response.status}).`);
   }
   return response.headers.get('content-type')?.includes('application/json')
@@ -699,7 +703,17 @@ setInterval(() => {
   if (activeRun(state.project) && !state.busy) $('#activity').innerHTML = progress(state);
 }, 1000);
 try {
-  [state.health, state.meta] = await Promise.all([api('/health'), api('/meta')]);
+  [state.health, state.meta] = await Promise.all([api('/instance'), api('/meta')]);
+  // First run: analysis cannot start without a provider key, so begin in Settings.
+  if (
+    !location.hash.slice(1).replace('/', '') &&
+    !Object.values(await api('/providers')).some((provider) => provider.configured)
+  ) {
+    history.replaceState(null, '', '#/settings');
+    toast(
+      'Add an API key to run analysis. You can create projects and import sources without one.',
+    );
+  }
   await route();
   const changes = new EventSource('/v1/events');
   changes.onmessage = (message) => {

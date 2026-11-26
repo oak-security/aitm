@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
-import { setup, serve } from './helpers.js';
+import { setup, serve, authed } from './helpers.js';
 import { saveKeys } from '../src/config.js';
 import { markdown } from '../src/web/markdown.js';
 
@@ -26,13 +26,13 @@ test('web assets are explicit, same-origin only and ship an inert Markdown rende
     '/ui/assets/BDOGrotesk-Medium.woff2',
     '/ui/assets/BDOGrotesk-Bold.woff2',
   ]) {
-    const response = await fetch(url + resource);
+    const response = await authed(url + resource);
     assert.equal(response.status, 200, resource);
     assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     assert.ok((await response.arrayBuffer()).byteLength > 0);
   }
-  assert.equal((await fetch(url, { method: 'HEAD' })).status, 200);
+  assert.equal((await authed(url, { method: 'HEAD' })).status, 200);
   for (const resource of [
     '/.env.local',
     '/ui/../config.js',
@@ -40,9 +40,9 @@ test('web assets are explicit, same-origin only and ship an inert Markdown rende
     '/ui/assets/../../../../.env.local',
     '/ui/%2e%2e%2fconfig.js',
   ])
-    assert.equal((await fetch(url + resource)).status, 404);
-  assert.equal((await fetch(url, { headers: { origin: 'https://evil.invalid' } })).status, 403);
-  assert.equal((await fetch(url, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+    assert.equal((await authed(url + resource)).status, 404);
+  assert.equal((await authed(url, { headers: { origin: 'https://evil.invalid' } })).status, 403);
+  assert.equal((await authed(url, { headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
   const rendered = markdown(
     '# Report\n\n<img src=x onerror=alert(1)>\n\n**Claim** [click](javascript:alert(1))\n\n| A | B |\n| --- | --- |\n| Value \\| escaped | **Bold**<br>next |\n\n```\n<script>alert(1)</script>\n```',
   );
@@ -120,7 +120,7 @@ test('web credentials are saved privately, reject cross-origin writes and never 
       .status,
     422,
   );
-  const denied = await fetch(url + '/v1/providers/openai/credentials', {
+  const denied = await authed(url + '/v1/providers/openai/credentials', {
     method: 'PUT',
     headers: { origin: 'https://evil.invalid', 'content-type': 'application/json' },
     body: JSON.stringify({ apiKey: 'evil' }),
@@ -143,7 +143,7 @@ test('global browser events announce changes and release subscriptions on discon
     { url } = await serve(t, engine);
   const baseline = engine.events.listenerCount('change');
   const controller = new AbortController();
-  const response = await fetch(url + '/v1/events', { signal: controller.signal });
+  const response = await authed(url + '/v1/events', { signal: controller.signal });
   assert.equal(response.headers.get('content-type'), 'text/event-stream');
   const reader = response.body.getReader();
   assert.match(new TextDecoder().decode((await reader.read()).value), /"projectId":null/);
@@ -185,7 +185,11 @@ test(
           '--data-dir',
           dataDir,
         ],
-        { cwd: directory, stdio: ['ignore', 'pipe', 'pipe'] },
+        {
+          cwd: directory,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, XDG_CONFIG_HOME: path.join(directory, 'config') },
+        },
       );
       let output = '';
       child.stdout.on('data', (s) => {
@@ -199,15 +203,28 @@ test(
       });
       for (let n = 0; n < 100 && !output.includes('web workbench:'); n++) await pause(50);
       assert.ok(output.includes('web workbench:'), output);
-      const health = await (await fetch(`http://127.0.0.1:${port}/v1/health`)).json();
-      assert.equal(health.pid, child.pid);
-      assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 200);
-      const projects = await (await fetch(`http://127.0.0.1:${port}/v1/projects`)).json();
+      for (let n = 0; n < 100 && !output.includes('Ctrl+C'); n++) await pause(50);
+      const launch = /http:\/\/127\.0\.0\.1:\d+\/\?token=([\w-]{43})/.exec(output);
+      assert.ok(launch, output);
+      const headers = { authorization: `Bearer ${launch[1]}` };
+      const origin = `http://127.0.0.1:${port}`;
+      assert.deepEqual(Object.keys(await (await fetch(`${origin}/v1/health`)).json()).sort(), [
+        'apiVersion',
+        'service',
+        'version',
+      ]);
+      assert.equal((await fetch(`${origin}/`)).status, 401);
+      assert.equal((await fetch(`${origin}/v1/projects`)).status, 401);
+      assert.equal((await fetch(launch[0], { redirect: 'manual' })).status, 303);
+      const instance = await (await fetch(`${origin}/v1/instance`, { headers })).json();
+      assert.equal(instance.pid, child.pid);
+      assert.equal((await fetch(`${origin}/`, { headers })).status, 200);
+      const projects = await (await fetch(`${origin}/v1/projects`, { headers })).json();
       assert.equal(projects.length, i === 0 ? 0 : 1);
       if (i > 0) {
         if (firstId) assert.equal(projects[0].id, firstId);
         else firstId = projects[0].id;
-        assert.ok(output.includes(`/#/projects/${firstId}/overview`), output);
+        assert.ok(output.includes(`#/projects/${firstId}/overview`), output);
       }
       const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
       child.kill('SIGTERM');

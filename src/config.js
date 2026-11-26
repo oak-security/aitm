@@ -1,14 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  readFileSync,
-  mkdirSync,
-  writeFileSync,
-  renameSync,
-  chmodSync,
-  unlinkSync,
-} from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { parseEnv } from 'node:util';
@@ -16,21 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { credentialPatch } from './engine/credentials.js';
+import { configDir, readPrivate, writePrivate, loadToken, tokenFile } from './token.js';
 
-export const configDir = () =>
-  path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'aitm');
+export { configDir };
 export const defaultDataDir = () =>
   path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'aitm-v2');
-
-function privateFile(file) {
-  if (!existsSync(file)) return null;
-  const stat = lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink())
-    throw new Error('Credential configuration must be a regular file.');
-  if (process.platform !== 'win32' && stat.mode & 0o077)
-    throw new Error(`Credential file must be owner-readable only: chmod 600 ${file}`);
-  return readFileSync(file, 'utf8');
-}
+const privateFile = readPrivate;
 
 function storedKeys(directory) {
   const stored = privateFile(path.join(directory, 'keys.json'));
@@ -47,15 +28,7 @@ export function saveKeys(patch, { directory = configDir() } = {}) {
   const changes = credentialPatch(patch);
   if (!Object.keys(changes).length) return;
   const next = { ...storedKeys(directory), ...changes };
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  chmodSync(directory, 0o700);
-  const temporary = path.join(directory, `keys-${randomUUID()}.tmp`);
-  try {
-    writeFileSync(temporary, JSON.stringify(next), { flag: 'wx', mode: 0o600 });
-    renameSync(temporary, path.join(directory, 'keys.json'));
-  } finally {
-    if (existsSync(temporary)) unlinkSync(temporary);
-  }
+  writePrivate(directory, 'keys.json', JSON.stringify(next));
 }
 
 export function loadConfig({
@@ -92,6 +65,8 @@ export function loadConfig({
       ]),
     ),
     keyFile: path.join(directory, 'keys.json'),
+    tokenFile: tokenFile(directory),
+    apiToken: (options) => loadToken(directory, options),
     saveCredentials: (patch) => saveKeys(patch, { directory }),
     anthropicWorkspaceId: stored.anthropicWorkspaceId ?? combined.ANTHROPIC_WORKSPACE_ID ?? '',
     dataDir: path.resolve(combined.AITM_DATA_DIR || defaultDataDir()),

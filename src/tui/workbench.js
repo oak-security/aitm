@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink';
 import { readFile, stat } from 'node:fs/promises';
-import { App, Form } from './app.js';
+import { App, Form, keyFields, providerOptions, saveKey } from './app.js';
 import { FilePicker } from './file-picker.js';
 import { Select } from './select.js';
 import { LOGO, terminalText } from './logo.js';
@@ -12,13 +12,19 @@ const h = React.createElement;
 export function Workbench({ engine, projectId, apiUrl, pickerDirectory, ...appProps }) {
   const { exit } = useApp(),
     { rows = 30 } = useWindowSize();
+  // First run: analysis cannot start without a provider key, so begin in Settings.
+  const unconfigured = () => !Object.values(engine.providers.status()).some((p) => p.configured);
+  const [firstRun] = useState(() => !projectId && unconfigured());
   const [selected, setSelected] = useState(projectId),
-    [screen, setScreen] = useState(projectId ? 'project' : 'home'),
+    [screen, setScreen] = useState(projectId ? 'project' : firstRun ? 'settings' : 'home'),
+    [keyProvider, setKeyProvider] = useState('openai'),
     [projects, setProjects] = useState(() => engine.list()),
     [notice, setNotice] = useState(
       projectId
         ? appProps.initialNotice || 'Project opened. v View report · o Projects.'
-        : 'Create or open a project. No source is imported automatically.',
+        : firstRun
+          ? 'No API key is configured. Add one to run analysis, or press Esc to continue without.'
+          : 'Create or open a project. No source is imported automatically.',
     ),
     [busy, setBusy] = useState(''),
     [sourceId, setSourceId] = useState(null),
@@ -74,12 +80,15 @@ export function Workbench({ engine, projectId, apiUrl, pickerDirectory, ...appPr
     if (
       screen === 'project' ||
       busy ||
-      ['new', 'rename', 'path', 'url', 'delete', 'remove', 'files', 'import'].includes(screen)
+      ['new', 'rename', 'path', 'url', 'delete', 'remove', 'files', 'import', 'key'].includes(
+        screen,
+      )
     )
       return;
     if (input === 'q') exit();
     if (input === 'n') setScreen('new');
     if (input === 'o') setScreen('open');
+    if (input === 's') setScreen('settings');
     if (input === 'i' && project) beginAdd();
   });
   if (screen === 'project' && project)
@@ -143,6 +152,49 @@ export function Workbench({ engine, projectId, apiUrl, pickerDirectory, ...appPr
           screen === 'new' ? 'add' : 'project',
         ),
     );
+  else if (screen === 'settings')
+    body = choose(
+      'Settings · API keys',
+      [
+        ...providerOptions(engine),
+        { value: ':test', label: 'Test the configured providers' },
+        { value: ':back', label: project ? 'Back to project' : 'Back to projects' },
+      ],
+      (value) => {
+        if (value === ':back') back();
+        else if (value === ':test')
+          perform(
+            'Testing provider connections…',
+            async () => {
+              const configured = Object.entries(engine.providers.status()).filter(
+                ([, status]) => status.configured,
+              );
+              if (!configured.length) throw new Error('Add an API key before you test.');
+              for (const [provider, status] of configured)
+                await engine.providers.test(provider, status.fastModel, AbortSignal.timeout(30000));
+              return `Verified: ${configured.map(([provider]) => provider).join(', ')}.`;
+            },
+            'settings',
+          );
+        else {
+          setKeyProvider(value);
+          setScreen('key');
+        }
+      },
+      engine.providers.keyFile
+        ? `Saved privately: ${engine.providers.keyFile}. Models are set in each project (p).`
+        : 'Keys apply to this session. Models are set in each project (p).',
+    );
+  else if (screen === 'key')
+    body = h(Form, {
+      key: `key-${keyProvider}`,
+      title: `${keyProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API key`,
+      fields: keyFields(engine, keyProvider),
+      onSubmit: (values) =>
+        perform('Saving credentials…', () => saveKey(engine, keyProvider, values), 'settings'),
+      onCancel: () => setScreen('settings'),
+      disabled: Boolean(busy),
+    });
   else if (screen === 'open')
     body = choose(
       'Open project',
@@ -289,6 +341,7 @@ export function Workbench({ engine, projectId, apiUrl, pickerDirectory, ...appPr
         { value: 'new', label: 'New project' },
         { value: 'open', label: `Open project · ${projects.length} saved` },
         { value: 'import', label: 'Import project JSON' },
+        { value: 'settings', label: 'Settings · API keys' },
         ...(project
           ? [
               { value: 'project', label: `Resume ${project.name}` },
@@ -304,7 +357,7 @@ export function Workbench({ engine, projectId, apiUrl, pickerDirectory, ...appPr
           setScreen('home');
         } else setScreen(mode);
       },
-      'n New · o Open · q Quit. Projects can contain several sources.',
+      'n New · o Open · s Settings · q Quit. Projects can contain several sources.',
     );
   return h(
     Box,

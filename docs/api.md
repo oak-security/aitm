@@ -1,7 +1,7 @@
 # AiTM engine API
 
 Start `aitm [source]`, `aitm web [source]` or `aitm serve` and connect to `http://127.0.0.1:8790`. The API is local and
-single-user; no authentication or network binding beyond loopback is supported.
+single-user. It binds only to loopback, and each request needs the private access token.
 The normal TUI calls the same engine directly. Independent clients should use this
 API instead of reading project files. Closing AiTM also closes its API; `aitm serve`
 runs the engine and API without a TUI.
@@ -24,12 +24,45 @@ capability metadata, so its model families are filtered locally. A listed model
 is not a guarantee of account generation access; the existing connection test
 checks the selected model with a small structured request.
 
+## Authentication
+
+Send the access token on each request:
+
+```sh
+AUTH="Authorization: Bearer $(aitm token)"
+curl -fsS -H "$AUTH" http://127.0.0.1:8790/v1/projects
+```
+
+`aitm token` prints the token of the current user. It is saved in
+`~/.config/aitm/token` (mode 600), stays the same across restarts, and changes
+only with `aitm token --rotate`. A request without a valid token gets HTTP 401
+with code `unauthorized`. Only `GET /v1/health` and the static workbench files
+under `/ui/` answer without it.
+
+Browsers use a cookie. `GET /?token=TOKEN` answers 303 to `/` and sets
+`aitm_token_<port>` as an `HttpOnly`, `SameSite=Strict` cookie. `aitm web` opens
+that URL for you. `GET /` without a valid cookie returns a 401 page with
+instructions and no data.
+
+`ApiClient` from `@oak-security/aitm/client` takes the token as an option. When
+you omit it, the client uses `AITM_TOKEN`, then the token file of the current user:
+
+```js
+import { ApiClient } from '@oak-security/aitm/client';
+const client = new ApiClient('http://127.0.0.1:8790');
+const projects = await client.get('/v1/projects');
+```
+
+`startServer(engine, options)` accepts `token` and `allowedHosts`. Without a
+`token`, it creates a random one for that server and returns it as `token`;
+`webUrl()` returns the browser URL that carries it.
+
 ## Start a project and run
 
 All request bodies use `Content-Type: application/json`.
 
 ```sh
-curl -s http://127.0.0.1:8790/v1/projects \
+curl -s -H "$AUTH" http://127.0.0.1:8790/v1/projects \
   -H 'Content-Type: application/json' \
   -d '{"name":"Custody review","scope":"Assess signer and release authority"}'
 ```
@@ -38,11 +71,11 @@ The result is a project document with `id`, `revision`, `config`, `sources`,
 `artifacts`, `runs` and `audit`. Use its `id` as `PROJECT_ID` below.
 
 ```sh
-curl -s http://127.0.0.1:8790/v1/projects/PROJECT_ID/sources \
+curl -s -H "$AUTH" http://127.0.0.1:8790/v1/projects/PROJECT_ID/sources \
   -H 'Content-Type: application/json' \
   -d '{"kind":"text","label":"Architecture","text":"The vault holds deposits. Two of three signers authorize releases."}'
 
-curl -s http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs \
+curl -s -H "$AUTH" http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs \
   -H 'Content-Type: application/json' \
   -d '{"mode":"full"}'
 ```
@@ -63,8 +96,8 @@ that phase after checking prerequisites and clearing dependent artifacts. `full`
 cannot be combined with a single `phase`.
 
 ```sh
-curl -N http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs/RUN_ID/events
-curl -s http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs/RUN_ID
+curl -N -H "$AUTH" http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs/RUN_ID/events
+curl -s -H "$AUTH" http://127.0.0.1:8790/v1/projects/PROJECT_ID/runs/RUN_ID
 ```
 
 SSE events have increasing integer IDs. Reconnect with `Last-Event-ID: 12` or
@@ -115,7 +148,8 @@ relationships still trigger a single bounded repair before a failed phase.
 
 | Method and path                                  | Behavior                                                          |
 | ------------------------------------------------ | ----------------------------------------------------------------- |
-| `GET /v1/health`                                 | Server identity, version, PID and storage directory               |
+| `GET /v1/health`                                 | Service name, version and API version. Needs no token             |
+| `GET /v1/instance`                               | Version, PID, storage directory and key file path                 |
 | `GET /v1/meta`                                   | Phase registry and artifact schemas                               |
 | `GET /v1/providers`                              | Provider configuration status and model defaults                  |
 | `GET /v1/providers/:provider/models`             | Account model choices, or defaults with a notice                  |
@@ -205,7 +239,7 @@ larger inputs within the file limits.
 ## Report storage and viewing
 
 Project documents are stored as `<project-id>.json` in the configured data directory
-(default `~/.local/share/aitm-v2`, exposed by `/v1/health`). They contain all report
+(default `~/.local/share/aitm-v2`, exposed by `/v1/instance`). They contain all report
 artifacts; Markdown is assembled on demand by the report endpoint and TUI's `v`
 reader. Viewing never writes PDF or Markdown files. The PDF endpoint generates a
 response only when requested; the TUI's `x` export requires an explicit format and
@@ -239,7 +273,7 @@ artifacts. A report remains marked draft until every enabled gate is approved.
 ## Errors and limits
 
 Errors are `{ "error": { "code": "revision_conflict", "message": "..." } }`.
-HTTP 400 means malformed JSON, 403 disallowed browser origin/host, 404 unknown
+HTTP 400 means malformed JSON, 401 a missing or invalid access token, 403 disallowed browser origin/host, 404 unknown
 resource, 409 busy project / revision conflict / missing review, 413 oversized body,
 415 wrong media type and 422 invalid input. Provider failures after a job starts
 appear in the job's status/error, not in the already-returned 202 response.
@@ -263,7 +297,9 @@ completed artifacts remain available if no valid draft can be produced.
 `GET /` serves the bundled web UI; its modules, CSS, fonts and marks live under
 `/ui/`. Only explicitly registered assets are public. Static responses have CSP,
 `nosniff` and frame restrictions and pass the same Host/Origin/fetch-metadata checks
-as API requests. The engine remains loopback-only and single-user.
+as API requests. The engine remains loopback-only and single-user. The `Host`
+header must be the server's own loopback address and port, or a loopback name
+given with `--allowed-host` for an SSH forward to a different local port.
 
 `aitm web` starts the engine/API and opens the Projects screen without importing
 anything. An explicit `[source]` opens or reuses that source at the project's
@@ -275,7 +311,6 @@ Additional resources used by the workbench:
 
 | Method and path                           | Behavior                                                                                                                                                                                                                                                                                 |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/health`                          | Also returns `cwd` and the private credential `keyFile` path (never its contents)                                                                                                                                                                                                        |
 | `POST /v1/projects/open`                  | Body `{ "source": "/path/or/https-url" }` or `{ "source": <SourceInput> }`; source is required. Returns `{ project, reused }`. Local/Git/URL sources reopen the most recent project containing that source; uploads create a new assessment. Failed ingestion removes its empty project. |
 | `PUT /v1/projects/:id/source`             | Body `{ "source": "/path/or/https-url" }`; replaces the primary source using CLI normalization. Multiple-source imports must remove extra snapshots before using this shortcut.                                                                                                          |
 | `PUT /v1/providers/:provider/credentials` | Body with `apiKey` and/or Anthropic `workspaceId`; saves through the owning provider's credential writer before changing active credentials, and returns provider status only. Empty keys are rejected; omit a key to keep it. Empty workspace ID explicitly clears it.                  |
