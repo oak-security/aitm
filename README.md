@@ -41,7 +41,7 @@ put `~/.local/bin` on your `PATH`.
 To install a release tarball instead of a checkout:
 
 ```sh
-npm install --global ./oak-security-aitm-2.1.0.tgz
+npm install --global ./oak-security-aitm-2.2.0.tgz
 ```
 
 ## First run

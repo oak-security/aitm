@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.2.0 (2026-11-26)
 
 ### Changed
 
@@ -25,7 +25,7 @@
   when no assessment is open. With an assessment open, it shows a warning while
   the selected provider is not saved.
 
-## 2.1.0 (not released)
+## 2.1.0 (2026-11-26)
 
 ### Security
 

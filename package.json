@@ -1,6 +1,6 @@
 {
   "name": "@oak-security/aitm",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "TRACE threat modelling engine with local API, terminal and web interfaces.",
   "type": "module",
   "exports": {
